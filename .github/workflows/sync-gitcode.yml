@@ -3,6 +3,7 @@ name: Sync to GitCode
 on:
   push:
     branches: [master, main]
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -13,6 +14,8 @@ jobs:
           fetch-depth: 0
 
       - name: Push to GitCode
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
         run: |
-          git remote add gitcode https://gitcode.com/unknowbug/qlens.git
+          git remote add gitcode "https://oauth2:${GITCODE_TOKEN}@gitcode.com/unknowbug/qlens.git"
           git push gitcode --all --force
