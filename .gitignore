@@ -1,0 +1,50 @@
+# Build
+build/
+out/
+cmake-build-*/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+
+# Qt
+*.qm
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+*_autogen/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Backup & temp scripts
+src/quick_backup/
+_revert.py
+_clean.py
+_fix_header.py
+_integrate.py
+_fix_mgr.py
+_fix3.py
+_fix_both.py
+_fix_scroll3.py
+_final_fix.py
+_mini_fix.py
+_acrylic_clean.py
+_check_main.bat
+_show.py
+_t.py
+
+# Local project docs (not for repo)
+qlens-plan.md
+qlens-plan-v1.1.md
+复盘与技术架构.md
