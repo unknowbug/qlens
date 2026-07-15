@@ -1,5 +1,4 @@
 name: Sync to GitCode
-
 on:
   push:
     branches: [master, main]
@@ -17,5 +16,5 @@ jobs:
         env:
           GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
         run: |
-          git remote add gitcode "https://oauth2:${GITCODE_TOKEN}@gitcode.com/unknowbug/qlens.git"
-          git push gitcode --all --force
+          git remote add gitcode https://oauth2:${GITCODE_TOKEN}@gitcode.com/xiao19881026/${GITHUB_REPOSITORY#*/}.git
+          git push --mirror gitcode
