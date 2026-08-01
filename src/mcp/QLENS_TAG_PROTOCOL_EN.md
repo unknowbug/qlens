@@ -87,6 +87,32 @@ JOIN image_tags it ON t.id = it.tag_id
 ORDER BY t.name;
 ```
 
+## AI tagging pre-compression spec
+
+QLens's `qlens_analyze` (AI batch tagging) pre-compresses images **in-process** before calling the
+vision model, preventing agents from uploading originals and burning tokens.
+
+### Resolution targets
+
+| Task | Target | Note |
+|------|--------|------|
+| **Content tags** (wedding/landscape/people/objects) | **long edge ≤ 720px** | Vision models are trained at 512–768px; 720px already exceeds effective input |
+| **QC checks** (blurry/overexposure/color cast/closed-eye/red-eye) | algorithm on **original resolution** | downsampling misjudges blur; QC does not go through a VLM |
+| **Detail captions** (optional) | long edge ≤ 1080px | only when describing fine detail |
+
+### Why 720px is enough
+
+Modern vision models (CLIP/ViT-style) encode images at fixed patch sizes — content beyond the
+training resolution gets cropped/downscaled. **Feeding a 4K original vs a 720p version carries the
+same effective information, but costs 90%+ more tokens.** 720px long edge is the sweet spot for
+tagging accuracy vs cost.
+
+### Rules
+
+1. Compression happens inside QLens; **image bytes never enter the agent context**
+2. stable_id (hash) is always computed on the **original file** (size + mtime + first 4KB), independent of compression
+3. QC detection runs algorithmically on the original resolution, uncompressed
+
 ## Relationship with QLens components
 
 | Component | Role | When needed |
