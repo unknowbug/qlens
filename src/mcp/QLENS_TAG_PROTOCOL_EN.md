@@ -96,4 +96,4 @@ ORDER BY t.name;
 | **Your script/agent** | **Read/write qltag.db directly** | **Anytime — QLens does not need to run** |
 
 **QLens MCP is tied to the Manager lifecycle; the qltag.db protocol itself is fully independent —
-once customers have the tag data, they can do whatever they want with any tool.**
+once you have the tag data, you can do whatever you want with any tool.**

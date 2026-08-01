@@ -94,4 +94,4 @@ ORDER BY t.name;
 | QLens MCP Server | 读写 qltag.db，供外部 AGENT 调用 | 需先启动 Manager |
 | **你的脚本/AGENT** | **直接读写 qltag.db** | **任何时间，无需 QLens 运行** |
 
-**QLens MCP 绑定 Manager 生命周期；但 qltag.db 协议本身完全独立——客户拿到标签数据后，可以用任何工具自由发挥。**
+**QLens MCP 绑定 Manager 生命周期；但 qltag.db 协议本身完全独立——你拿到标签数据后，可以用任何工具自由发挥。**

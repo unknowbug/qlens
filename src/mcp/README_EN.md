@@ -34,7 +34,7 @@ QLens is fundamentally not a viewer — it's **a universal image tagging protoco
 
 - Tag storage = the open `qltag.db` protocol (one per folder, pure filenames, WAL concurrency-safe)
 - Any script/agent can **read/write qltag.db directly**, with no need for QLens to run
-- We publish the MCP design and protocol docs so customers understand the mechanism and can extend it their own way
+- We publish the MCP design and protocol docs so users understand the mechanism and can extend it their own way
 
 **Two tiers:**
 | Tier | Capability | Prerequisite |

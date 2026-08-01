@@ -28,12 +28,12 @@ one by one. With AI, recognizing image content became a few lines of code. But A
 brought a new problem:
 
 **Vision models charge by the image — a single 4K original can burn tens of thousands of tokens.**
-If a customer feeds original images straight to an agent, one batch-tagging session can blow
+If you feed original images straight to an agent, one batch-tagging session can blow
 a large chunk of their budget.
 
 ### And so QLens's core tension emerged
 
-- Customers want **AI-powered flexibility** (letting an agent organize their library however they like)
+- You want **AI-powered flexibility** (letting an agent organize your library however you like)
 - But batch tagging **requires pre-compression and batching**, or tokens explode
 - These two directions pull against each other: agent-driven vs program-controlled
 
@@ -42,13 +42,13 @@ a large chunk of their budget.
 ```
 QLens Manager ── MCP (tied to Manager lifecycle; batch analysis auto-pre-compresses)
       │
-      └─ qltag.db (one per folder, open protocol) ── customers read/write freely with their own agents
+      └─ qltag.db (one per folder, open protocol) ── you read/write freely with your own agents
 ```
 
 - **MCP layer**: Agents want to play? Nine tools, call them freely. Need batch tagging? Go through
   `qlens_analyze` — the program pre-compresses before analysis, so tokens don't burn.
-- **Protocol layer**: Tag data lives in a `qltag.db` in every folder, format fully open. Customers
-  who understand it can **design their own extensions** — their own scripts, their own agents, any
+- **Protocol layer**: Tag data lives in a `qltag.db` in every folder, format fully open. Once you
+  understand it, you can **design your own extensions** — your own scripts, your own agents, any
   tool, any time, without QLens even running.
 
 QLens owns *how tags get written* (execution); *what you do with tagged photos* (the playbook) is entirely yours.
@@ -64,7 +64,7 @@ QLens owns *how tags get written* (execution); *what you do with tagged photos* 
 | **qlens_quick** (C++/Qt) | Minimal viewer: drag-and-drop, thumbnail strip, zoom / page navigation |
 | **qlens_manager** (C++/Qt) | Library manager: folder tree + virtualized thumbnail grid + tag panel |
 | **qlens MCP Server** (Python) | Exposes library operations to any MCP client (Claude / CherryStudio / Cursor) |
-| **qltag.db protocol** | Open tag storage format, freely extensible by customers |
+| **qltag.db protocol** | Open tag storage format, freely extensible |
 
 ## Core design
 
