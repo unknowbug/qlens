@@ -93,8 +93,8 @@ QLens 管"怎么打标签"（执行），把"打完标签干什么"（玩法）�
 
 ## 文档
 
-- [标签协议 (qltag.db)](src/mcp/QLENS_TAG_PROTOCOL.md) — 公开数据格式
-- [MCP 设计说明](src/mcp/README.md) — 为什么绑定 Manager + 工具清单
+- [标签协议 (qltag.db)](src/mcp/QLENS_TAG_PROTOCOL.md) — 公开数据格式（[English](src/mcp/QLENS_TAG_PROTOCOL_EN.md)）
+- [MCP 设计说明](src/mcp/README.md) — 为什么绑定 Manager + 工具清单（[English](src/mcp/README_EN.md)）
 
 ## 构建
 

@@ -1,5 +1,7 @@
 # QLens 标签协议（qltag.db）
 
+[English](QLENS_TAG_PROTOCOL_EN.md) · 中文
+
 QLens 的标签数据以 **每文件夹一个 `qltag.db`** 的形式存储。这是 QLens 的**公开数据协议**——任何软件、脚本或 AGENT 都可以直接读写，与 QLens 应用本身解耦。
 
 ## 核心规则

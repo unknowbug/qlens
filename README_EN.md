@@ -99,8 +99,8 @@ QLens owns *how tags get written* (execution); *what you do with tagged photos* 
 
 ## Docs
 
-- [Tag protocol (qltag.db)](src/mcp/QLENS_TAG_PROTOCOL.md) — open data format
-- [MCP design notes](src/mcp/README.md) — why MCP ties to Manager + tool list
+- [Tag protocol (qltag.db)](src/mcp/QLENS_TAG_PROTOCOL.md) — open data format ([中文](src/mcp/QLENS_TAG_PROTOCOL.md))
+- [MCP design notes](src/mcp/README.md) — why MCP ties to Manager + tool list ([中文](src/mcp/README.md))
 
 ## Build
 

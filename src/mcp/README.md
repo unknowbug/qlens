@@ -1,5 +1,7 @@
 # QLens MCP Server
 
+[English](README_EN.md) · 中文
+
 把 QLens 图库操作暴露给任何 MCP 客户端（Claude Desktop / CherryStudio / Cursor ...）。
 标签数据存储遵循公开的 **qltag.db 协议**（见 [QLENS_TAG_PROTOCOL.md](QLENS_TAG_PROTOCOL.md)）。
 
