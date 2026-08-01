@@ -739,7 +739,7 @@ void MainWindow::scrollThumbToCenter()
     auto *sb = m_thumbStrip->horizontalScrollBar();
     if (sb) {
         // 强制刷新 scrollbar range（构建按钮后几何可能还没更新）
-        QApplication::processEvents();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
         int targetX = pad + m_currentIndex * btnW + half - vpW / 2;
         if (targetX < 0) targetX = 0;
         sb->setValue(targetX);
