@@ -9,6 +9,27 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <shlobj.h>
+#endif
+
+// 获取系统"图片"文件夹真实路径（兼容 Known Folder 重定向到其他盘）
+static QString picturesFolder()
+{
+#ifdef Q_OS_WIN
+    PWSTR path = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &path))) {
+        QString result = QString::fromWCharArray(path);
+        CoTaskMemFree(path);
+        if (!result.isEmpty() && QDir(result).exists())
+            return result;
+    }
+#endif
+    QString fallback = QDir::homePath() + "/Pictures";
+    return QDir(fallback).exists() ? fallback : QDir::homePath();
+}
 #include <QPushButton>
 #include <QComboBox>
 #include <QDir>
@@ -180,6 +201,9 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
             openFolder(fi.absolutePath());
             openInViewer(target);
         }
+    } else {
+        // 无参数：默认打开系统"图片"文件夹（兼容重定向到其他盘）
+        openFolder(picturesFolder());
     }
 }
 
