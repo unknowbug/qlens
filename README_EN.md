@@ -13,7 +13,20 @@ letting any software, script, or agent read and write image tags.
 
 ## Why does QLens exist?
 
-### The starting point: plenty of viewers, but all missing one thing
+### Origin one: nothing views photos like Picasa anymore
+
+Anyone who used Picasa knows that experience: **light, fast, clean** — double-click to view,
+no UI getting in the way, browsing that just feels right. Picasa has long been discontinued.
+What replaced it?
+
+- **ACDSee and the like**: full-featured but heavy — slow startup, toolbar-cluttered UI,
+  viewing a photo feels like running heavy software
+- **Other viewers**: light but poor browsing experience, or decent experience but not light at all
+
+QLens started as an attempt to bring back that light, fast, clean viewing experience —
+**QLens is first and foremost a capable viewer**, filling the gap Picasa left behind.
+
+### Origin two: viewers are all missing one thing
 
 Everyone has folders full of photos — weddings, trips, snapshots, work assets. Viewers today
 can open, zoom, and flip through images fast and beautifully, but none of them can answer:
