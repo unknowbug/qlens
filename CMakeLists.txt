@@ -11,6 +11,11 @@ find_package(lcms REQUIRED)
 
 # ── 子项目 ────────────────────────────────
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# 应用图标资源（configure 注入绝对路径，供两个 exe 共用）
+configure_file(${CMAKE_SOURCE_DIR}/qlens.rc ${CMAKE_BINARY_DIR}/qlens.rc @ONLY)
+set(QLENS_RC ${CMAKE_BINARY_DIR}/qlens.rc)
+
 add_subdirectory(src/core)
 add_subdirectory(src/quick)
 add_subdirectory(src/manager)

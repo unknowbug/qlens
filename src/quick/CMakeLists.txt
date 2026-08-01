@@ -3,7 +3,7 @@ set(QUICK_SOURCES
     MainWindow.cpp
 )
 
-add_executable(qlens_quick WIN32 ${QUICK_SOURCES})
+add_executable(qlens_quick WIN32 ${QUICK_SOURCES} ${QLENS_RC} qlens.qrc)
 set_target_properties(qlens_quick PROPERTIES AUTOMOC ON)
 
 target_link_libraries(qlens_quick PRIVATE

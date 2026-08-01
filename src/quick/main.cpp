@@ -3,6 +3,7 @@
 #include <QTranslator>
 #include <QLocale>
 #include <QDir>
+#include <QIcon>
 #include "MainWindow.h"
 #include "thumbnail.h"
 #include "color.h"
@@ -12,6 +13,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setApplicationName("QLens");
     app.setApplicationVersion("0.1.0");
+    app.setWindowIcon(QIcon(":/app.ico"));  // 窗口/任务栏图标
 
     // ── 国际化 ──
     QTranslator trans;

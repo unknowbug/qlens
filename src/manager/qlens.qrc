@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="app.ico">../../assets/QLens.ico</file>
+    </qresource>
+</RCC>
