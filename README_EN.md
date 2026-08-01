@@ -1,5 +1,7 @@
 # QLens
 
+<img src="assets/QLens.png" width="64" align="left" style="margin-right:12px" />
+
 > **QLens is an image viewer — and more importantly, it provides a universal image-tagging protocol designed for the AI era.**
 
 [English](README_EN.md) · 中文

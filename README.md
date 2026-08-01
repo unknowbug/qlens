@@ -1,5 +1,7 @@
 # QLens
 
+<img src="assets/QLens.png" width="64" align="left" style="margin-right:12px" />
+
 > **QLens 是一个看图工具，更重要的是，它提供了一套为 AI 时代思考设计的通用图片标签协议。**
 
 [English](README_EN.md) · 中文
