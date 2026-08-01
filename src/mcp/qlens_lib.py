@@ -127,6 +127,18 @@ def remove_tag(image_path, tag_name):
     conn.commit()
 
 
+def add_tag_with_confidence(image_path, tag_name, confidence):
+    """带置信度写标签（QC/AI 打标用），已存在则更新置信度。"""
+    db_path, fname = _resolve(image_path)
+    conn = _conn_for(db_path)
+    tid = _tag_id(conn, tag_name)
+    conn.execute(
+        "INSERT INTO image_tags(filename, tag_id, source, confidence) VALUES(?,?,?,?) "
+        "ON CONFLICT(filename, tag_id) DO UPDATE SET confidence=excluded.confidence",
+        (fname, tid, "qc", float(confidence)))
+    conn.commit()
+
+
 def search_by_tag(tag_name, folder=None, recursive=True):
     """按标签搜索。folder 可选；recursive=True 时递归子文件夹的 qltag.db。"""
     if folder is None:

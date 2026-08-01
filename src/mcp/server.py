@@ -17,6 +17,7 @@ import sys
 from mcp.server.fastmcp import FastMCP
 
 import qlens_lib
+import qc_detect
 
 
 def manager_running() -> bool:
@@ -142,6 +143,32 @@ def qlens_delete_files(paths: list[str]) -> dict:
         except Exception as e:  # noqa: BLE001
             failed.append({"path": p, "reason": str(e)})
     return {"ok": not failed, "deleted": done, "failed": failed}
+
+
+@mcp.tool()
+def qlens_analyze(folder: str, task: str = "qc", recursive: bool = False,
+                  confidence: float = 0.5) -> dict:
+    """✅ 推荐工具：批量图片质量检测打标（QC）。
+    当用户要求分析/质检一批图片时，必须用本工具，不要逐张读图或让用户上传原图。
+    本工具在程序内部用 OpenCV 算法检测（不出本机、零 token、零 API 配置），
+    检测结果直接写入 qltag.db。
+    folder: 目标文件夹绝对路径；
+    task: 当前仅 "qc"（模糊/曝光过度/曝光不足/色偏/红眼/闭眼）；
+    recursive: 是否递归子文件夹；
+    confidence: 置信度阈值 0~1（默认 0.5，低于此不写标签）。"""
+    results = qc_detect.analyze_folder(folder, recursive=recursive)
+    written, skipped = 0, 0
+    for item in results:
+        tags = [t for t, conf in item["qc"].items() if conf >= confidence]
+        if tags:
+            # 逐标签写库（保留置信度）
+            for t in tags:
+                qlens_lib.add_tag_with_confidence(item["path"], t, item["qc"][t])
+            written += 1
+        else:
+            skipped += 1
+    return {"ok": True, "folder": folder, "task": task,
+            "analyzed": len(results), "tagged": written, "skipped": skipped}
 
 
 def self_test():
