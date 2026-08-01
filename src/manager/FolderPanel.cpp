@@ -1,6 +1,5 @@
 #include "FolderPanel.h"
 #include <QVBoxLayout>
-#include <QLabel>
 #include <QDir>
 
 FolderPanel::FolderPanel(QWidget *parent) : QWidget(parent) {
@@ -19,26 +18,22 @@ FolderPanel::FolderPanel(QWidget *parent) : QWidget(parent) {
     m_folderTree->setHeaderHidden(true);
     for (int i = 1; i < m_fsModel->columnCount(); ++i)
         m_folderTree->hideColumn(i);
-    l->addWidget(m_folderTree, 3);
+    l->addWidget(m_folderTree);
 
-    auto *tagLabel = new QLabel(tr("Tag Filter"), this);
-    tagLabel->setStyleSheet("color:#888; font-size:11px; padding:4px 4px 0 4px;");
-    l->addWidget(tagLabel);
-
-    m_tagSearch = new QLineEdit(this);
-    m_tagSearch->setPlaceholderText(tr("Search tags..."));
-    m_tagSearch->setStyleSheet("background:#222; color:#ccc; border:1px solid #333; padding:4px;");
-    l->addWidget(m_tagSearch);
-
-    m_tagSuggestions = new QListWidget(this);
-    m_tagSuggestions->setMaximumHeight(120);
-    m_tagSuggestions->setStyleSheet("background:#1a1a1a; color:#888; border:1px solid #333;");
-    l->addWidget(m_tagSuggestions);
-
-    setMinimumWidth(200);
+    setMinimumWidth(180);
 
     connect(m_folderTree->selectionModel(), &QItemSelectionModel::currentChanged,
             [this](const QModelIndex &idx) {
+        if (m_syncing) return;  // 程序同步时忽略
         emit folderSelected(m_fsModel->filePath(idx));
     });
+}
+
+void FolderPanel::setCurrentPath(const QString &path) {
+    QModelIndex idx = m_fsModel->index(path);
+    if (!idx.isValid()) return;
+    m_syncing = true;
+    m_folderTree->setCurrentIndex(idx);
+    m_folderTree->scrollTo(idx);
+    m_syncing = false;
 }

@@ -38,8 +38,7 @@ private:
     void launchManager();
     void buildThumbnails();
     void scrollThumbToCenter();
-    void thumbLoadOne(int idx);
-    void thumbUpdateBtn(int idx, const QPixmap &icon);
+    void thumbUpdateByName(const QString &name, const QPixmap &icon);
     void thumbAddBtn(int idx, const QPixmap &pix);
 
     QGraphicsView  *m_view   = nullptr;

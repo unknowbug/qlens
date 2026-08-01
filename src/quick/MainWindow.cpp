@@ -185,7 +185,10 @@ void MainWindow::launchManager()
     QString path = QCoreApplication::applicationDirPath() + "/qlens_manager.exe";
     QStringList args;
     if (!m_currentFile.isEmpty()) args << m_currentFile;
-    QProcess::startDetached(path, args);
+    if (QProcess::startDetached(path, args)) {
+        // 启动成功，快速查看器退出，图片管理交给 Manager
+        close();
+    }
 }
 
 void MainWindow::showUI(bool v)
@@ -643,6 +646,7 @@ void MainWindow::buildThumbnails()
     }
     m_thumbCount = 0;
     int total = (int)m_siblings.size();
+    int start = (m_currentIndex >= 0 && m_currentIndex < total) ? m_currentIndex : 0;
     m_thumbLayout->setContentsMargins(4, 2, 4, 2);
     for (int i = 0; i < total; ++i)
         thumbAddBtn(i, {});
@@ -650,46 +654,48 @@ void MainWindow::buildThumbnails()
     scrollThumbToCenter();
     m_thumbInner->show(); m_thumbInner->raise();
     m_thumbStrip->repaint();
-    // single thread loads all
+    // 螺旋顺序：当前图 → 右侧 → 左侧
     std::vector<int> order;
     order.reserve(total);
-    order.push_back(m_currentIndex);
+    order.push_back(start);
     for (int d = 1; d < total; ++d) {
-        int r = m_currentIndex + d, l = m_currentIndex - d;
+        int r = start + d, l = start - d;
         if (r < total) order.push_back(r);
         if (l >= 0)    order.push_back(l);
     }
-    auto *t = new std::thread([this, order]() {
-        for (int idx : order) thumbLoadOne(idx);
+    // 拷贝路径列表到线程（避免访问主线程的 m_siblings）
+    QStringList paths;
+    for (int idx : order)
+        paths << m_currentDir.absoluteFilePath(m_siblings[idx]);
+    int ts = m_thumbSize;
+    auto *t = QThread::create([this, paths, ts]() {
+        for (const QString &path : paths) {
+            QImageReader rd(path);
+            rd.setAutoTransform(true);
+            rd.setScaledSize(QSize(ts, ts));
+            QImage img = rd.read();
+            if (img.isNull()) continue;
+            QPixmap pix = QPixmap::fromImage(img);
+            QString name = QFileInfo(path).fileName();
+            QMetaObject::invokeMethod(this, [this, name, pix]() {
+                thumbUpdateByName(name, pix);
+            }, Qt::QueuedConnection);
+        }
     });
-    t->detach();
+    connect(t, &QThread::finished, t, &QObject::deleteLater);
+    t->start();
 }
 
-void MainWindow::thumbUpdateBtn(int idx, const QPixmap &icon)
+void MainWindow::thumbUpdateByName(const QString &name, const QPixmap &icon)
 {
     auto btns = m_thumbInner->findChildren<QPushButton*>();
     for (auto *btn : btns) {
-        if (btn->toolTip() != m_siblings[idx]) continue;
+        if (btn->toolTip() != name) continue;
         btn->setIcon(QIcon(icon));
         btn->setIconSize(QSize(m_thumbSize, m_thumbSize));
         btn->setText("");
         return;
     }
-}
-
-void MainWindow::thumbLoadOne(int idx)
-{
-    // Load all thumbnails from disk, current image too
-    QString path = m_currentDir.absoluteFilePath(m_siblings[idx]);
-    QImageReader rd(path);
-    rd.setAutoTransform(true);
-    rd.setScaledSize(QSize(m_thumbSize, m_thumbSize));
-    QImage img = rd.read();
-    if (img.isNull()) return;
-    QPixmap pix = QPixmap::fromImage(img);
-    QMetaObject::invokeMethod(this, [this, idx, pix]() {
-        thumbUpdateBtn(idx, pix);
-    }, Qt::QueuedConnection);
 }
 
 void MainWindow::thumbAddBtn(int idx, const QPixmap &pix)

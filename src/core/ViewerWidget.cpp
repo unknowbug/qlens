@@ -21,7 +21,19 @@ ViewerWidget::ViewerWidget(QWidget *parent) : QWidget(parent)
     m_view->setRenderHint(QPainter::SmoothPixmapTransform, true);
     m_view->viewport()->setAcceptDrops(false);
     m_view->setAcceptDrops(false);
+    // 滚轮/双击事件发生在 m_view 上，拦截转发到本控件处理
+    m_view->viewport()->installEventFilter(this);
+    m_view->installEventFilter(this);
     l->addWidget(m_view, 1);
+}
+
+bool ViewerWidget::eventFilter(QObject *obj, QEvent *event)
+{
+    if (event->type() == QEvent::Wheel) {
+        wheelEvent(static_cast<QWheelEvent*>(event));
+        return true;
+    }
+    return QWidget::eventFilter(obj, event);
 }
 
 // ── 图片加载 ──────────────────────────────

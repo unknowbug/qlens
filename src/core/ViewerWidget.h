@@ -29,6 +29,7 @@ signals:
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 private:
     void loadImage(const QString &filePath);
