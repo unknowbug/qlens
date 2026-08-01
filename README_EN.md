@@ -1,6 +1,8 @@
 # QLens
 
-> **QLens is not just an image viewer — it's a universal image tagging protocol.**
+> **QLens is an image viewer — and more importantly, it provides a universal image-tagging protocol designed for the AI era.**
+
+[English](README_EN.md) · 中文
 
 A lightweight image viewer + manager built around an open tagging protocol (`qltag.db`),
 letting any software, script, or agent read and write image tags.
@@ -17,6 +19,7 @@ can open, zoom, and flip through images fast and beautifully, but none of them c
 > "Which of the 200 photos I took at the beach last year have closed eyes?"
 
 Photos live on disk, memories live in your head — and between them sits a missing layer: **tags**.
+QLens is first and foremost a capable viewer; its real value is adding that missing tag layer to "viewing photos".
 
 ### The turning point: AI made tagging possible for the first time
 
@@ -50,7 +53,7 @@ QLens Manager ── MCP (tied to Manager lifecycle; batch analysis auto-pre-com
 
 QLens owns *how tags get written* (execution); *what you do with tagged photos* (the playbook) is entirely yours.
 
-> **What QLens really delivers isn't software — it's a tagging protocol plus an execution engine that stops AI from burning your tokens.**
+> **QLens is first an image viewer; what it truly delivers is a tagging protocol designed for the AI era, plus an execution engine that stops AI from burning your tokens.**
 
 ---
 
