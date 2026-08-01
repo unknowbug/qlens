@@ -21,35 +21,59 @@ static QMutex g_logMutex;
 
 static void logHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
 {
-    QMutexLocker lock(&g_logMutex);
-    QString line = QStringLiteral("[%1] [%4] %2  %3")
-        .arg(QDateTime::currentDateTime().toString("HH:mm:ss.zzz"))
-        .arg(msg)
-        .arg(ctx.file ? QString::fromUtf8(ctx.file) : QStringLiteral("?"))
-        .arg(QString::fromUtf8(ctx.category ? ctx.category : ""));
-    if (g_logFile.isOpen()) {
-        QTextStream ts(&g_logFile);
-        ts << line << "\n";
-        ts.flush();
+    // 用 WinAPI 直接写文件，避免 QString/QTextStream 在内存损坏时二次崩溃
+#ifdef Q_OS_WIN
+    QByteArray utf8 = msg.toUtf8();
+    utf8.append('\n');
+    HANDLE h = CreateFileW((LPCWSTR)QString(g_logFile.fileName()).utf16(),
+                           FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        DWORD written;
+        WriteFile(h, utf8.constData(), (DWORD)utf8.size(), &written, nullptr);
+        CloseHandle(h);
     }
     if (type == QtFatalMsg) {
-        // 断言/致命错误：打印调用栈辅助定位
-#ifdef Q_OS_WIN
         void *stack[32];
         USHORT frames = CaptureStackBackTrace(0, 32, stack, nullptr);
+        QByteArray hdr = QByteArray("--- call stack (") + QByteArray::number(frames) + QByteArray(" frames) ---\n");
+        QByteArray dump;
+        for (USHORT i = 0; i < frames; ++i)
+            dump += QByteArray("  0x") + QByteArray::number((quintptr)stack[i], 16) + '\n';
+        HANDLE h2 = CreateFileW((LPCWSTR)QString(g_logFile.fileName()).utf16(),
+                                FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h2 != INVALID_HANDLE_VALUE) {
+            DWORD w;
+            WriteFile(h2, hdr.constData(), (DWORD)hdr.size(), &w, nullptr);
+            WriteFile(h2, dump.constData(), (DWORD)dump.size(), &w, nullptr);
+            CloseHandle(h2);
+        }
+    }
+#endif
+}
+
+int main(int argc, char *argv[]) {
+#ifdef Q_OS_WIN
+    // 抓 SEH 硬崩溃（访问违规等不走 qFatal），打印调用栈到日志
+    SetUnhandledExceptionFilter([](EXCEPTION_POINTERS *ep) -> LONG {
+        QMutexLocker lock(&g_logMutex);
         if (g_logFile.isOpen()) {
             QTextStream ts(&g_logFile);
+            ts << "--- SEH exception code=0x"
+               << QString::number((quint32)ep->ExceptionRecord->ExceptionCode, 16)
+               << " ---\n";
+            void *stack[32];
+            USHORT frames = CaptureStackBackTrace(0, 32, stack, nullptr);
             ts << "--- call stack (" << frames << " frames) ---\n";
             for (USHORT i = 0; i < frames; ++i)
                 ts << "  " << stack[i] << "\n";
             ts.flush();
         }
+        return EXCEPTION_CONTINUE_SEARCH;
+    });
 #endif
-        if (g_logFile.isOpen()) g_logFile.flush();
-    }
-}
 
-int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("QLens Manager");
     app.setWindowIcon(QIcon(":/app.ico"));  // 窗口/任务栏图标

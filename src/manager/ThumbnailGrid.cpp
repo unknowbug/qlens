@@ -49,6 +49,9 @@ void ThumbModel::updatePix(int row, const QPixmap &pix) {
     m_items[row].pix = pix;
     QModelIndex idx = index(row);
     emit dataChanged(idx, idx, {PixRole});
+    // IconMode + setUniformItemSizes 下 dataChanged 单行可能不触发重绘，强制刷新
+    if (auto *v = qobject_cast<QListView*>(QObject::parent()))
+        v->viewport()->update();
 }
 
 void ThumbModel::updateHighlight(int row, bool hit) {
@@ -145,24 +148,41 @@ static QImage loadImageNoIcc(const QString &path, int maxPx)
     if (!f.open(QIODevice::ReadOnly))
         return {};
     QByteArray data = f.readAll();
-    // 非 PNG 或没有 iCCP → 直接走 QImageReader
+    // 有 iCCP 被剥离 → 从内存深拷贝解码（QImage::fromData 会拷贝数据，无悬垂）
     if (data.startsWith("\x89PNG\r\n\x1a\n")) {
-        QByteArray cleaned = data.left(8);
+        bool stripped = false;
+        QByteArray cleaned;
         qsizetype pos = 8;
         while (pos + 8 <= data.size()) {
             const quint32 len = qFromBigEndian<quint32>(data.constData() + pos);
-            const QByteArray type = data.mid(pos + 4, 4);
             const qsizetype total = 12 + len;
-            if (pos + total > data.size()) break;  // 损坏，交给 Qt 处理
-            if (type != "iCCP")
-                cleaned += data.mid(pos, total);
+            if (pos + total > data.size()) break;
+            if (data.mid(pos + 4, 4) == "iCCP") {
+                stripped = true;
+                cleaned = data.left(8);
+                break;
+            }
             pos += total;
         }
-        if (cleaned.size() > 8) data = cleaned;  // 有 chunk 才替换
+        if (stripped) {
+            pos = 8;
+            while (pos + 8 <= data.size()) {
+                const quint32 len = qFromBigEndian<quint32>(data.constData() + pos);
+                const QByteArray type = data.mid(pos + 4, 4);
+                const qsizetype total = 12 + len;
+                if (pos + total > data.size()) break;
+                if (type != "iCCP")
+                    cleaned += data.mid(pos, total);
+                pos += total;
+            }
+            QImage img = QImage::fromData(cleaned);
+            if (!img.isNull() && maxPx > 0)
+                img = img.scaled(maxPx, maxPx, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            return img;
+        }
     }
-    QBuffer buf(&data);
-    buf.open(QIODevice::ReadOnly);
-    QImageReader rd(&buf, "png");
+    // 无 iCCP：直接读文件路径（QImageReader 自管文件生命周期，无悬垂）
+    QImageReader rd(path);
     rd.setAutoTransform(true);
     QSize orig = rd.size();
     if (orig.isValid() && orig.width() > 0 && maxPx > 0)
@@ -199,10 +219,15 @@ public:
         : m_grid(grid), m_folder(std::move(folder)), m_row(row), m_ts(ts), m_token(token) {}
 
     void run() override {
-        QDir sub(m_folder);
-        sub.setNameFilters({"*.jpg","*.jpeg","*.png","*.webp","*.bmp","*.gif"});
-        sub.setFilter(QDir::Files | QDir::Readable);
-        QStringList previews = sub.entryList();
+        // 只取前 4 个图片文件名（QDirIterator 前 4 个匹配即停，避免枚举整个目录）
+        QStringList previews;
+        QDirIterator it(m_folder,
+                        {"*.jpg","*.jpeg","*.png","*.webp","*.bmp","*.gif"},
+                        QDir::Files | QDir::Readable);
+        while (it.hasNext() && previews.size() < 4) {
+            it.next();
+            previews << it.fileName();
+        }
 
         // 全程用 QImage（线程安全）；QPixmap 只在主线程回调里创建
         QImage collage(m_ts, m_ts, QImage::Format_ARGB32_Premultiplied);
@@ -237,10 +262,12 @@ public:
             // 预览目标尺寸（cell 大小，最多 ~half ts）—— 用 setScaledSize 限流，
             // 避免解码 36MB 巨型 PNG 撑爆内存（之前崩溃根因）
             int targetPx = qMax(1, (int)(qMax(cellW, cellH) * 1.5));
+            int decoded = 0;
             for (int pi = 0; pi < sample; ++pi) {
                 // 剥离损坏 ICC 后解码（同 ThumbDecodeTask）
-                QImage img = loadImageNoIcc(sub.path() + "/" + previews[pi], targetPx);
+                QImage img = loadImageNoIcc(m_folder + "/" + previews[pi], targetPx);
                 if (img.isNull()) continue;
+                ++decoded;
                 int col = pi % cellCnt, row = pi / cellCnt;
                 QRectF cell(inner.x() + col*cellW, inner.y() + row*cellH, cellW, cellH);
                 QSize fit = img.size();
@@ -251,9 +278,9 @@ public:
         }
         p.end();
 
-        QMetaObject::invokeMethod(m_grid, [g = m_grid, r = m_row, im = collage, t = m_token]() {
-            if (g) g->applyFolderThumb(r, im, t);
-        }, Qt::QueuedConnection);
+        // 主线程同步调用（本任务由主线程直接 run()，无需投递事件队列——避免连续切换时事件堆积）
+        if (m_grid)
+            m_grid->applyFolderThumb(m_row, collage, m_token);
     }
 
 private:
@@ -352,10 +379,10 @@ void ThumbnailGrid::loadFolder(const QString &path) {
     int dirCount = (int)m_subDirs.size();
     int token = m_loadToken;  // 本次加载令牌
 
-    // 文件夹预览任务
-    // 文件夹预览任务
-    for (int di = 0; di < dirCount; ++di)
-        pool->start(new FolderPreviewTask(this, m_allItems[di].path, di, ts, token));
+    // 文件夹预览任务（主线程分批处理，避免大目录并发抢线程池导致部分任务滞留）
+    m_folderPreviewIdx = 0;
+    m_folderPreviewToken = token;
+    processNextFolderPreview(ts, token);
 
     // 图片：缓存命中直接显示，未命中提交解码
     for (int i = 0; i < (int)m_imageFiles.size(); ++i) {
@@ -369,6 +396,29 @@ void ThumbnailGrid::loadFolder(const QString &path) {
             continue;
         }
         pool->start(new ThumbDecodeTask(this, fp, row, ts, token));
+    }
+}
+
+// 主线程分批处理文件夹拼图（每次 2 个，避免 46 个大目录并发卡死）
+void ThumbnailGrid::processNextFolderPreview(int ts, int token) {
+    // 每次进入都检查 token：用户已切换目录则丢弃（loadFolder 清空了 m_allItems）
+    if (token != m_loadToken || m_folderPreviewIdx >= (int)m_subDirs.size())
+        return;
+    const int batch = 2;
+    for (int n = 0; n < batch && m_folderPreviewIdx < (int)m_subDirs.size(); ++n, ++m_folderPreviewIdx) {
+        // 每次迭代检查 token：task->run() 的 updatePix→dataChanged 可能重入 loadFolder
+        // 清空 m_allItems，再访问就崩溃（SEH 0xc0000005 已证实）
+        if (token != m_loadToken)
+            return;
+        int di = m_folderPreviewIdx;
+        // 用路径快照（m_allItems 可能被新 loadFolder 重建，不能跨批持有索引）
+        QString dirPath = m_allItems[di].path;
+        FolderPreviewTask *task = new FolderPreviewTask(this, dirPath, di, ts, token);
+        task->run();
+        delete task;
+    }
+    if (m_folderPreviewIdx < (int)m_subDirs.size() && token == m_loadToken) {
+        QTimer::singleShot(0, this, [this, ts, token]{ processNextFolderPreview(ts, token); });
     }
 }
 

@@ -81,6 +81,7 @@ private:
 
     int  findModelRow(const QString &path) const;
     void applyFilter();
+    void processNextFolderPreview(int ts, int token);
 
     TagStore    *m_store = nullptr;
     ThumbModel  *m_model = nullptr;
@@ -88,6 +89,8 @@ private:
     QStringList  m_imageFiles;
     QStringList  m_subDirs;
     QList<ThumbItem> m_allItems;   // 全量（不过滤）
+    int          m_folderPreviewIdx = 0;
+    int          m_folderPreviewToken = 0;
     QString      m_currentFolder;
     QString      m_highlightTag;
     QString      m_filterTag;

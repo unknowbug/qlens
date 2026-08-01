@@ -29,11 +29,11 @@ bool TagStore::open(const QString &folder) {
     QString dbPath = folder + "/qltag.db";
     if (!QDir(folder).exists()) return false;
 
-    // 用固定连接名，避免 addDatabase 同名反复替换导致旧查询悬垂
-    const QString connName = QStringLiteral("qlens_tags_main");
-    m_db = QSqlDatabase::contains(connName)
-        ? QSqlDatabase::database(connName, /*open=*/false)
-        : QSqlDatabase::addDatabase("QSQLITE", connName);
+    // 每次 open 用全新连接名：避免在同一连接上 setDatabaseName 换库导致旧 QSqlQuery 悬垂
+    // （切目录时旧库的查询可能还在使用连接，换库即悬垂 → QString 损坏崩溃）
+    static quint64 s_seq = 0;
+    const QString connName = QStringLiteral("qlens_tags_%1").arg(++s_seq);
+    m_db = QSqlDatabase::addDatabase("QSQLITE", connName);
     m_db.setDatabaseName(dbPath);
     if (!m_db.open()) {
         // 打开失败：可能是崩溃残留的损坏 wal。清理后重试一次。
@@ -72,8 +72,11 @@ bool TagStore::open(const QString &folder) {
 }
 
 void TagStore::close() {
+    QString connName = m_db.connectionName();
     if (m_db.isOpen()) m_db.close();
     m_db = QSqlDatabase();
+    if (!connName.isEmpty())
+        QSqlDatabase::removeDatabase(connName);  // 移除注册表，防止连接泄漏
     m_folder.clear();
     m_tagNames.clear();
 }
