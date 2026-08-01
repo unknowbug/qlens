@@ -1,6 +1,6 @@
 set(CMAKE_AUTOMOC ON)
 
-add_executable(qlens_manager
+add_executable(qlens_manager WIN32
     main.cpp
     ManagerWindow.cpp
     ThumbnailGrid.cpp

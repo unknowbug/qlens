@@ -143,7 +143,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     auto *fm = menuBar()->addMenu(tr("&File"));
     fm->addAction(tr("&Open Folder..."), [this]() {
         QString d = QFileDialog::getExistingDirectory(this, tr("Open Folder"));
-        if (!d.isEmpty()) m_grid->loadFolder(d);
+        if (!d.isEmpty()) openFolder(d);
     });
     fm->addAction(tr("&Open Image..."), [this]() {
         QString f = QFileDialog::getOpenFileName(this, tr("Open Image"));
@@ -159,9 +159,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     });
 
     connect(m_grid, &ThumbnailGrid::folderDoubleClicked, [this](const QString &path) {
-        m_grid->loadFolder(path);
-        m_folderPanel->setCurrentPath(path);   // 左侧树同步
-        refreshToolbar(path);
+        openFolder(path);
     });
 
     connect(m_grid, &ThumbnailGrid::imageDoubleClicked, [this](const QString &path) {
@@ -179,11 +177,17 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
         QString target = args[1];
         if (QFileInfo::exists(target)) {
             QFileInfo fi(target);
-            m_grid->loadFolder(fi.absolutePath());
-            refreshToolbar(fi.absolutePath());
+            openFolder(fi.absolutePath());
             openInViewer(target);
         }
     }
+}
+
+// 统一文件夹入口：网格加载 + 左侧树同步 + 工具条刷新
+void ManagerWindow::openFolder(const QString &path) {
+    m_grid->loadFolder(path);
+    m_folderPanel->setCurrentPath(path);
+    refreshToolbar(path);
 }
 
 // 文件夹变化：更新路径标签 + 刷新过滤/着色候选标签

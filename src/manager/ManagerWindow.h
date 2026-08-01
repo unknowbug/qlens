@@ -22,6 +22,7 @@ protected:
 
 private:
     void openInViewer(const QString &path);
+    void openFolder(const QString &path);
     void backToGrid();
     void refreshToolbar(const QString &path);
 

@@ -2,6 +2,8 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDir>
+#include <QFileInfo>
+#include <QFile>
 #include <QVariant>
 #include <QDebug>
 
@@ -27,11 +29,20 @@ bool TagStore::open(const QString &folder) {
     QString dbPath = folder + "/qltag.db";
     if (!QDir(folder).exists()) return false;
 
-    m_db = QSqlDatabase::addDatabase("QSQLITE", "qlens_tags_" + QString::number((quintptr)this));
+    // 用固定连接名，避免 addDatabase 同名反复替换导致旧查询悬垂
+    const QString connName = QStringLiteral("qlens_tags_main");
+    m_db = QSqlDatabase::contains(connName)
+        ? QSqlDatabase::database(connName, /*open=*/false)
+        : QSqlDatabase::addDatabase("QSQLITE", connName);
     m_db.setDatabaseName(dbPath);
     if (!m_db.open()) {
-        qWarning() << "TagStore: open failed" << m_db.lastError().text();
-        return false;
+        // 打开失败：可能是崩溃残留的损坏 wal。清理后重试一次。
+        QFile::remove(folder + "/qltag.db-wal");
+        QFile::remove(folder + "/qltag.db-shm");
+        if (!m_db.open()) {
+            qWarning() << "TagStore: open failed" << m_db.lastError().text();
+            return false;
+        }
     }
 
     QSqlQuery q(m_db);

@@ -62,9 +62,10 @@ public:
     // 当前文件夹的全部标签（供工具条候选，主线程汇总）
     QStringList folderTags() const;
 
-    // 线程池任务回调（主线程执行）
-    void applyImageThumb(int row, const QString &path, const QPixmap &pix);
-    void applyFolderThumb(int row, const QPixmap &pix);
+    // 线程池任务回调（主线程执行；QPixmap 只能 GUI 线程创建）
+    // token 用于丢弃过期任务：loadFolder 自增，回调不匹配则丢弃（防止切目录竞态）
+    void applyImageThumb(int row, const QString &path, const QImage &img, int token);
+    void applyFolderThumb(int row, const QImage &img, int token);
 
 signals:
     void folderDoubleClicked(const QString &path);
