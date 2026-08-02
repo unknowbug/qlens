@@ -196,6 +196,17 @@ public:
         : m_grid(grid), m_path(std::move(path)), m_row(row), m_ts(ts), m_token(token) {}
 
     void run() override {
+        // 先查缓存（worker 线程，ThumbnailCache 已加锁线程安全）——命中则跳过解码
+        QByteArray cached = ThumbnailCache::get(m_path);
+        if (!cached.isEmpty()) {
+            QImage cimg;
+            if (cimg.loadFromData(cached)) {
+                QMetaObject::invokeMethod(m_grid, [g = m_grid, r = m_row, p = m_path, im = cimg, t = m_token]() {
+                    if (g) g->applyImageThumb(r, p, im, t);
+                }, Qt::QueuedConnection);
+                return;
+            }
+        }
         // 剥离损坏 ICC 后解码（ComfyUI PNG 触发 qicc 断言）
         QImage img = loadImageNoIcc(m_path, m_ts);
         if (img.isNull()) return;
@@ -278,15 +289,51 @@ public:
         }
         p.end();
 
-        // 主线程同步调用（本任务由主线程直接 run()，无需投递事件队列——避免连续切换时事件堆积）
-        if (m_grid)
-            m_grid->applyFolderThumb(m_row, collage, m_token);
+        // 回线程池执行：QImage 线程安全，投递主线程收结果（QPixmap 只在主线程创建）
+        QMetaObject::invokeMethod(m_grid, [g = m_grid, r = m_row, im = collage, t = m_token]() {
+            if (g) g->applyFolderThumb(r, im, t);
+        }, Qt::QueuedConnection);
     }
 
 private:
     QPointer<ThumbnailGrid> m_grid;
     QString m_folder;
     int m_row, m_ts, m_token;
+};
+
+
+// ── 目录扫描任务（W2 IO 线程池）──
+// 返回当前文件夹的子目录 + 图片文件（QStringList 值类型，线程安全）
+
+class ScanTask : public QRunnable {
+public:
+    // Result 定义在头文件（ScanResult）
+    ScanTask(QPointer<ThumbnailGrid> grid, QString path, int token)
+        : m_grid(grid), m_path(std::move(path)), m_token(token) {}
+
+    void run() override {
+        QDir dir(m_path);
+        dir.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
+        ScanResult r;
+        r.subDirs = dir.entryList();
+
+        QStringList filters;
+        for (auto &fmt : QImageReader::supportedImageFormats())
+            filters << ("*." + QString::fromLatin1(fmt));
+        filters << "*.cr2" << "*.cr3" << "*.nef" << "*.arw" << "*.dng" << "*.rw2";
+        dir.setNameFilters(filters);
+        dir.setFilter(QDir::Files | QDir::Readable);
+        r.imageFiles = dir.entryList();
+
+        QMetaObject::invokeMethod(m_grid, [g = m_grid, res = r, t = m_token]() {
+            if (g) g->applyScanResult(res, t);
+        }, Qt::QueuedConnection);
+    }
+
+private:
+    QPointer<ThumbnailGrid> m_grid;
+    QString m_path;
+    int m_token;
 };
 
 // ── 网格视图实现 ──
@@ -337,17 +384,16 @@ void ThumbnailGrid::loadFolder(const QString &path) {
     QThreadPool::globalInstance()->clear();
     m_filterTag.clear();  // 切文件夹重置过滤
 
-    QDir dir(path);
-    dir.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
-    m_subDirs = dir.entryList();
+    // 目录扫描移到 W2 worker 线程（大目录枚举不阻塞 UI）
+    int token = m_loadToken;
+    QThreadPool::globalInstance()->start(new ScanTask(this, path, token));
+}
 
-    QStringList filters;
-    for (auto &fmt : QImageReader::supportedImageFormats())
-        filters << ("*." + QString::fromLatin1(fmt));
-    filters << "*.cr2" << "*.cr3" << "*.nef" << "*.arw" << "*.dng" << "*.rw2";
-    dir.setNameFilters(filters);
-    dir.setFilter(QDir::Files | QDir::Readable);
-    m_imageFiles = dir.entryList();
+// W2 扫描结果回主线程：构建 items + 提交解码任务
+void ThumbnailGrid::applyScanResult(const ScanResult &res, int token) {
+    if (token != m_loadToken) return;
+    m_subDirs = res.subDirs;
+    m_imageFiles = res.imageFiles;
 
     // 全量 items（供过滤重显）
     QFileIconProvider ip;
@@ -357,17 +403,19 @@ void ThumbnailGrid::loadFolder(const QString &path) {
     m_allItems.clear();
     m_allItems.reserve(m_subDirs.size() + m_imageFiles.size());
     for (const QString &d : m_subDirs)
-        m_allItems.push_back({d, path + "/" + d, true, folderIcon.pixmap(m_thumbSize, m_thumbSize), false, false});
+        m_allItems.push_back({d, m_currentFolder + "/" + d, true, folderIcon.pixmap(m_thumbSize, m_thumbSize), false, false});
     for (const QString &f : m_imageFiles)
-        m_allItems.push_back({f, path + "/" + f, false, fileIcon.pixmap(m_thumbSize, m_thumbSize), false, false});
+        m_allItems.push_back({f, m_currentFolder + "/" + f, false, fileIcon.pixmap(m_thumbSize, m_thumbSize), false, false});
 
     applyFilter();
 
-    // 高亮标签预查（主线程，SQLite 安全）
+    // 高亮标签预查（单条 SQL 拿所有命中文件名，替代逐图查询）
     if (!m_highlightTag.isEmpty()) {
+        QStringList hitFiles = TagStore::queryFilesWithTag(m_currentFolder, m_highlightTag);
+        QSet<QString> hitSet(hitFiles.begin(), hitFiles.end());
         for (const ThumbItem &it : m_allItems) {
             if (it.isDir) continue;
-            if (m_store->tagsForImage(it.name).contains(m_highlightTag)) {
+            if (hitSet.contains(it.name)) {
                 int row = findModelRow(it.path);
                 if (row >= 0) m_model->updateHighlight(row, true);
             }
@@ -377,48 +425,15 @@ void ThumbnailGrid::loadFolder(const QString &path) {
     int ts = m_thumbSize;
     QThreadPool *pool = QThreadPool::globalInstance();
     int dirCount = (int)m_subDirs.size();
-    int token = m_loadToken;  // 本次加载令牌
 
-    // 文件夹预览任务（主线程分批处理，避免大目录并发抢线程池导致部分任务滞留）
-    m_folderPreviewIdx = 0;
-    m_folderPreviewToken = token;
-    processNextFolderPreview(ts, token);
+    // 文件夹预览任务（线程池并行，QImage 线程安全）
+    for (int di = 0; di < dirCount; ++di)
+        pool->start(new FolderPreviewTask(this, m_allItems[di].path, di, ts, token));
 
-    // 图片：缓存命中直接显示，未命中提交解码
+    // 图片缩略图：全部提交解码任务（worker 内先查缓存，主线程不再碰 SQLite）
     for (int i = 0; i < (int)m_imageFiles.size(); ++i) {
         int row = dirCount + i;
-        QString fp = m_allItems[row].path;
-        QByteArray cached = ThumbnailCache::get(fp);
-        if (!cached.isEmpty()) {
-            QImage img;
-            if (img.loadFromData(cached))
-                applyImageThumb(row, fp, img, token);
-            continue;
-        }
-        pool->start(new ThumbDecodeTask(this, fp, row, ts, token));
-    }
-}
-
-// 主线程分批处理文件夹拼图（每次 2 个，避免 46 个大目录并发卡死）
-void ThumbnailGrid::processNextFolderPreview(int ts, int token) {
-    // 每次进入都检查 token：用户已切换目录则丢弃（loadFolder 清空了 m_allItems）
-    if (token != m_loadToken || m_folderPreviewIdx >= (int)m_subDirs.size())
-        return;
-    const int batch = 2;
-    for (int n = 0; n < batch && m_folderPreviewIdx < (int)m_subDirs.size(); ++n, ++m_folderPreviewIdx) {
-        // 每次迭代检查 token：task->run() 的 updatePix→dataChanged 可能重入 loadFolder
-        // 清空 m_allItems，再访问就崩溃（SEH 0xc0000005 已证实）
-        if (token != m_loadToken)
-            return;
-        int di = m_folderPreviewIdx;
-        // 用路径快照（m_allItems 可能被新 loadFolder 重建，不能跨批持有索引）
-        QString dirPath = m_allItems[di].path;
-        FolderPreviewTask *task = new FolderPreviewTask(this, dirPath, di, ts, token);
-        task->run();
-        delete task;
-    }
-    if (m_folderPreviewIdx < (int)m_subDirs.size() && token == m_loadToken) {
-        QTimer::singleShot(0, this, [this, ts, token]{ processNextFolderPreview(ts, token); });
+        pool->start(new ThumbDecodeTask(this, m_allItems[row].path, row, ts, token));
     }
 }
 
@@ -453,14 +468,8 @@ void ThumbnailGrid::setFilterTag(const QString &tag) {
 }
 
 QStringList ThumbnailGrid::folderTags() const {
-    // 汇总当前文件夹所有图片用到的标签（去重排序）
-    QSet<QString> tags;
-    for (const ThumbItem &it : m_allItems) {
-        if (it.isDir) continue;
-        for (const QString &t : m_store->tagsForImage(it.name))
-            tags.insert(t);
-    }
-    QStringList result = tags.values();
+    // 一条 DISTINCT 查询（替代逐图查询——4 万图 = 4 万查询的性能黑洞）
+    QStringList result = TagStore::queryFolderTags(m_currentFolder);
     result.sort(Qt::CaseInsensitive);
     return result;
 }

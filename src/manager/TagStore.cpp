@@ -1,4 +1,5 @@
 #include "TagStore.h"
+#include <QThread>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDir>
@@ -156,4 +157,101 @@ QStringList TagStore::searchTags(const QString &prefix) const {
     }
     result.sort(Qt::CaseInsensitive);
     return result;
+}
+
+
+// ── 线程安全静态查询（B1：每线程独立连接）──
+
+// 线程局部：folder → QSqlDatabase（每线程每文件夹一个连接）
+static QHash<QString, QSqlDatabase> &threadConnections()
+{
+    static thread_local QHash<QString, QSqlDatabase> conns;
+    return conns;
+}
+
+// 获取当前线程到 folder 的连接（不存在则创建）
+static QSqlDatabase threadConnection(const QString &folder)
+{
+    auto &conns = threadConnections();
+    auto it = conns.find(folder);
+    if (it != conns.end())
+        return it.value();
+
+    // 连接名含线程 id + folder，保证线程/文件夹隔离
+    QString connName = QStringLiteral("qlens_tag_w_%1_%2")
+        .arg((quintptr)QThread::currentThreadId())
+        .arg((quintptr)folder.constData(), 16);
+    // 若已存在（同线程同 folder 重建），先移除
+    if (QSqlDatabase::contains(connName))
+        QSqlDatabase::removeDatabase(connName);
+    auto db = QSqlDatabase::addDatabase("QSQLITE", connName);
+    db.setDatabaseName(folder + "/qltag.db");
+    if (!db.open()) {
+        // 可能是崩溃残留，清 wal 重试
+        QFile::remove(folder + "/qltag.db-wal");
+        QFile::remove(folder + "/qltag.db-shm");
+        db = QSqlDatabase::addDatabase("QSQLITE", connName);
+        db.setDatabaseName(folder + "/qltag.db");
+        if (!db.open())
+            return {};
+    }
+    QSqlQuery q(db);
+    q.exec("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+           "name TEXT UNIQUE NOT NULL, category TEXT DEFAULT '', color TEXT DEFAULT '')");
+    q.exec("CREATE TABLE IF NOT EXISTS image_tags (filename TEXT NOT NULL, tag_id INTEGER NOT NULL,"
+           "source TEXT DEFAULT 'manual', confidence REAL DEFAULT 1.0, PRIMARY KEY(filename, tag_id))");
+    conns.insert(folder, db);
+    return db;
+}
+
+QStringList TagStore::queryTagsForImage(const QString &folder, const QString &filename)
+{
+    QSqlDatabase db = threadConnection(folder);
+    if (!db.isOpen()) return {};
+    QStringList result;
+    QSqlQuery q(db);
+    q.prepare("SELECT t.name FROM tags t JOIN image_tags it ON t.id=it.tag_id "
+              "WHERE it.filename=? ORDER BY t.name");
+    q.addBindValue(filename);
+    q.exec();
+    while (q.next())
+        result << q.value(0).toString();
+    return result;
+}
+
+QStringList TagStore::queryFilesWithTag(const QString &folder, const QString &tag)
+{
+    QSqlDatabase db = threadConnection(folder);
+    if (!db.isOpen()) return {};
+    QStringList result;
+    QSqlQuery q(db);
+    q.prepare("SELECT it.filename FROM image_tags it JOIN tags t ON t.id=it.tag_id WHERE t.name=?");
+    q.addBindValue(tag);
+    q.exec();
+    while (q.next())
+        result << q.value(0).toString();
+    return result;
+}
+
+QStringList TagStore::queryFolderTags(const QString &folder)
+{
+    QSqlDatabase db = threadConnection(folder);
+    if (!db.isOpen()) return {};
+    QStringList result;
+    QSqlQuery q(db);
+    q.exec("SELECT DISTINCT t.name FROM tags t JOIN image_tags it ON t.id=it.tag_id ORDER BY t.name");
+    while (q.next())
+        result << q.value(0).toString();
+    return result;
+}
+
+void TagStore::closeThreadConnection()
+{
+    auto &conns = threadConnections();
+    for (auto it = conns.begin(); it != conns.end(); ++it) {
+        QString name = it.value().connectionName();
+        it.value().close();
+        QSqlDatabase::removeDatabase(name);
+    }
+    conns.clear();
 }

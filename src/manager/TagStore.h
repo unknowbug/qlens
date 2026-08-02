@@ -37,6 +37,14 @@ public:
     // 标签名 → id（内存缓存，未找到返回 -1）
     int tagId(const QString &name) const { return m_tagNames.value(name, -1); }
 
+    // ── 线程安全静态查询（W2 worker 用）──
+    // 每线程独立连接（B1），按 folder 打开 qltag.db，不依赖实例连接
+    static QStringList queryTagsForImage(const QString &folder, const QString &filename);
+    static QStringList queryFolderTags(const QString &folder);
+    static QStringList queryFilesWithTag(const QString &folder, const QString &tag);
+    // 清空当前线程的连接缓存（worker 线程退出前调用）
+    static void closeThreadConnection();
+
 private:
     QSqlDatabase m_db;
     QString      m_folder;

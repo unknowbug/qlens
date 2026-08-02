@@ -5,6 +5,8 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QCryptographicHash>
+#include <QMutex>
+#include <QMutexLocker>
 
 static const char *kDbName = "qlens_thumbnails.db";
 
@@ -13,6 +15,9 @@ static QSqlDatabase db()
     static QSqlDatabase d = QSqlDatabase::database("thumb");
     return d;
 }
+
+// 全局静态连接非线程安全 → 用互斥锁保护（B3；查询短，锁开销可忽略）
+static QMutex g_cacheMutex;
 
 bool ThumbnailCache::init()
 {
@@ -34,6 +39,7 @@ bool ThumbnailCache::init()
 
 QByteArray ThumbnailCache::get(const QString &filePath)
 {
+    QMutexLocker lock(&g_cacheMutex);
     auto d = db();
     if (!d.isOpen()) return {};
 
@@ -52,6 +58,7 @@ QByteArray ThumbnailCache::get(const QString &filePath)
 
 void ThumbnailCache::put(const QString &filePath, const QByteArray &jpegData)
 {
+    QMutexLocker lock(&g_cacheMutex);
     auto d = db();
     if (!d.isOpen()) return;
 

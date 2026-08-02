@@ -21,6 +21,12 @@ struct ThumbItem {
     bool    hasQcBadge  = false;
 };
 
+// 目录扫描结果（W2 worker 线程返回值）
+struct ScanResult {
+    QStringList subDirs;
+    QStringList imageFiles;
+};
+
 // ── 网格模型 ──
 class ThumbModel : public QAbstractListModel {
     Q_OBJECT
@@ -66,6 +72,7 @@ public:
     // token 用于丢弃过期任务：loadFolder 自增，回调不匹配则丢弃（防止切目录竞态）
     void applyImageThumb(int row, const QString &path, const QImage &img, int token);
     void applyFolderThumb(int row, const QImage &img, int token);
+    void applyScanResult(const ScanResult &res, int token);
 
 signals:
     void folderDoubleClicked(const QString &path);
@@ -81,7 +88,6 @@ private:
 
     int  findModelRow(const QString &path) const;
     void applyFilter();
-    void processNextFolderPreview(int ts, int token);
 
     TagStore    *m_store = nullptr;
     ThumbModel  *m_model = nullptr;
@@ -89,8 +95,6 @@ private:
     QStringList  m_imageFiles;
     QStringList  m_subDirs;
     QList<ThumbItem> m_allItems;   // 全量（不过滤）
-    int          m_folderPreviewIdx = 0;
-    int          m_folderPreviewToken = 0;
     QString      m_currentFolder;
     QString      m_highlightTag;
     QString      m_filterTag;
