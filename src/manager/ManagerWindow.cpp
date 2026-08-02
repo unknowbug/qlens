@@ -95,6 +95,27 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     tl->setContentsMargins(8, 4, 8, 4);
     tl->setSpacing(6);
 
+    // 导航按钮：后退 / 前进 / 上级目录
+    auto mkNavBtn = [&](const QString &text, const QString &tip) -> QPushButton* {
+        auto *b = new QPushButton(text, toolbar);
+        b->setToolTip(tip);
+        b->setFixedSize(28, 26);
+        b->setStyleSheet("QPushButton{background:#2a2a2a; color:#ccc; border:1px solid #444; border-radius:3px;}"
+                         "QPushButton:hover{background:#3a3a3a; color:#fff;}"
+                         "QPushButton:disabled{color:#555; background:#222;}");
+        return b;
+    };
+    m_backBtn = mkNavBtn("\u2190", tr("Back (Alt+Left)"));
+    m_forwardBtn = mkNavBtn("\u2192", tr("Forward (Alt+Right)"));
+    m_upBtn = mkNavBtn("\u2191", tr("Up one level (Backspace)"));
+    connect(m_backBtn, &QPushButton::clicked, this, &ManagerWindow::goBack);
+    connect(m_forwardBtn, &QPushButton::clicked, this, &ManagerWindow::goForward);
+    connect(m_upBtn, &QPushButton::clicked, this, &ManagerWindow::goUp);
+    tl->addWidget(m_backBtn);
+    tl->addWidget(m_forwardBtn);
+    tl->addWidget(m_upBtn);
+    tl->addSpacing(4);
+
     m_pathLabel = new QLabel(tr("(no folder)"), toolbar);
     m_pathLabel->setStyleSheet("color:#aaa; font-size:12px;");
     m_pathLabel->setMinimumWidth(160);
@@ -207,11 +228,65 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     }
 }
 
-// 统一文件夹入口：网格加载 + 左侧树同步 + 工具条刷新
+// 统一文件夹入口：网格加载 + 左侧树同步 + 工具条刷新 + 历史记录
 void ManagerWindow::openFolder(const QString &path) {
     m_grid->loadFolder(path);
     m_folderPanel->setCurrentPath(path);
     refreshToolbar(path);
+    pushHistory(path);
+}
+
+// 记录浏览历史（后退/前进用）
+void ManagerWindow::pushHistory(const QString &path) {
+    // 若在历史中间（后退过），清掉前进分支
+    while (m_historyPos < m_history.size() - 1)
+        m_history.removeLast();
+    // 避免重复记录同一目录
+    if (m_historyPos >= 0 && m_history[m_historyPos] == path)
+        return;
+    m_history.append(path);
+    m_historyPos = m_history.size() - 1;
+    updateNavButtons();
+}
+
+void ManagerWindow::goUp() {
+    QString cur = m_grid->currentFolder();
+    if (cur.isEmpty()) return;
+    QDir d(cur);
+    d.cdUp();
+    QString parent = d.absolutePath();
+    if (parent != cur && QDir(parent).exists())
+        openFolder(parent);
+}
+
+void ManagerWindow::goBack() {
+    if (m_historyPos > 0) {
+        --m_historyPos;
+        QString p = m_history[m_historyPos];
+        m_grid->loadFolder(p);
+        m_folderPanel->setCurrentPath(p);
+        refreshToolbar(p);
+        updateNavButtons();
+    }
+}
+
+void ManagerWindow::goForward() {
+    if (m_historyPos < m_history.size() - 1) {
+        ++m_historyPos;
+        QString p = m_history[m_historyPos];
+        m_grid->loadFolder(p);
+        m_folderPanel->setCurrentPath(p);
+        refreshToolbar(p);
+        updateNavButtons();
+    }
+}
+
+void ManagerWindow::updateNavButtons() {
+    m_backBtn->setEnabled(m_historyPos > 0);
+    m_forwardBtn->setEnabled(m_historyPos < m_history.size() - 1);
+    QString cur = m_grid->currentFolder();
+    QDir d(cur);
+    m_upBtn->setEnabled(!cur.isEmpty() && d.cdUp());
 }
 
 // 文件夹变化：更新路径标签 + 刷新过滤/着色候选标签
@@ -241,6 +316,13 @@ void ManagerWindow::keyPressEvent(QKeyEvent *e) {
     if (e->key() == Qt::Key_Escape && m_stack->currentIndex() == 1) {
         backToGrid();
         return;
+    }
+    // 文件管理快捷键
+    if (e->key() == Qt::Key_Backspace) { goUp(); return; }
+    if (e->modifiers() & Qt::AltModifier) {
+        if (e->key() == Qt::Key_Left)  { goBack(); return; }
+        if (e->key() == Qt::Key_Right) { goForward(); return; }
+        if (e->key() == Qt::Key_Up)    { goUp(); return; }
     }
     QMainWindow::keyPressEvent(e);
 }
