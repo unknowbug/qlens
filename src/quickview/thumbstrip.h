@@ -1,4 +1,4 @@
-// 缩略图条 —— GDI 绘制，底部 80px
+﻿// 缩略图条 —— GDI 绘制，底部 80px
 #pragma once
 #include <windows.h>
 #include <vector>

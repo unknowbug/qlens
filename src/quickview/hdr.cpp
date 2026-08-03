@@ -1,4 +1,4 @@
-// HDR 检测实现（DXGI）
+﻿// HDR 检测实现（DXGI）
 #include "hdr.h"
 #include <dxgi.h>
 #include <dxgi1_6.h>

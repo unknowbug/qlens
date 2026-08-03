@@ -1,4 +1,4 @@
-// HDR 支持检测（DXGI）
+﻿// HDR 支持检测（DXGI）
 #pragma once
 #include <windows.h>
 

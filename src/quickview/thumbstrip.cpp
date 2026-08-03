@@ -1,4 +1,4 @@
-// 缩略图条实现
+﻿// 缩略图条实现
 #include "thumbstrip.h"
 #include "decoder.h"
 #include <vector>

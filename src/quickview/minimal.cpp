@@ -1,4 +1,4 @@
-// 最小 Win32 窗口 —— 验证环境是否支持基本窗口
+﻿// 最小 Win32 窗口 —— 验证环境是否支持基本窗口
 #include <windows.h>
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_DESTROY) { PostQuitMessage(0); return 0; }
