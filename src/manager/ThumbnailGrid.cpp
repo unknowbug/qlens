@@ -26,6 +26,7 @@
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QBuffer>
 
 // 翻译辅助：msgid=中文，默认中文；.po 覆盖为目标语言
 static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(id)); }
@@ -258,6 +259,17 @@ public:
         : m_grid(grid), m_folder(std::move(folder)), m_row(row), m_ts(ts), m_token(token) {}
 
     void run() override {
+        // 文件夹拼图缓存（key=文件夹路径 + 文件夹 mtime）——命中则跳过扫描/生成
+        QByteArray cached = ThumbnailCache::get(m_folder);
+        if (!cached.isEmpty()) {
+            QImage cimg;
+            if (cimg.loadFromData(cached)) {
+                QMetaObject::invokeMethod(m_grid, [g = m_grid, r = m_row, im = cimg, t = m_token]() {
+                    if (g) g->applyFolderThumb(r, im, t);
+                }, Qt::QueuedConnection);
+                return;
+            }
+        }
         // 只取前 4 个图片文件名（QDirIterator 前 4 个匹配即停，避免枚举整个目录）
         QStringList previews;
         QDirIterator it(m_folder,
@@ -316,6 +328,15 @@ public:
             }
         }
         p.end();
+
+        // 缓存文件夹拼图（JPEG）——下次启动直接读，不再扫描/生成
+        {
+            QByteArray fbytes;
+            QBuffer buf(&fbytes);
+            buf.open(QIODevice::WriteOnly);
+            collage.save(&buf, "JPEG", 85);
+            if (!fbytes.isEmpty()) ThumbnailCache::put(m_folder, fbytes);
+        }
 
         // 回线程池执行：QImage 线程安全，投递主线程收结果（QPixmap 只在主线程创建）
         QMetaObject::invokeMethod(m_grid, [g = m_grid, r = m_row, im = collage, t = m_token]() {
