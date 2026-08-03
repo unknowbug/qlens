@@ -12,6 +12,7 @@
 #include <QUrl>
 #include <QFile>
 #include <QTimer>
+#include <cstdio>
 #include <QScreen>
 #include <QApplication>
 #include <shlobj.h>
@@ -159,7 +160,9 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     m_filterCombo->setInsertPolicy(QComboBox::NoInsert);
     m_filterCombo->setPlaceholderText(T(L"按标签过滤..."));
     m_filterCombo->setMinimumWidth(140);
-    m_filterCombo->setStyleSheet("QComboBox{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:3px;}");
+    m_filterCombo->setStyleSheet(
+        "QComboBox{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:3px;}"
+        "QComboBox QAbstractItemView{background:#222; color:#eee; selection-background-color:#335;}");
     tl->addWidget(m_filterCombo);
 
     // 高亮：给网格项加颜色标记（按标签）
@@ -171,7 +174,9 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     m_highlightCombo->setInsertPolicy(QComboBox::NoInsert);
     m_highlightCombo->setPlaceholderText(T(L"按标签高亮..."));
     m_highlightCombo->setMinimumWidth(140);
-    m_highlightCombo->setStyleSheet("QComboBox{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:3px;}");
+    m_highlightCombo->setStyleSheet(
+        "QComboBox{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:3px;}"
+        "QComboBox QAbstractItemView{background:#222; color:#eee; selection-background-color:#335;}");
     tl->addWidget(m_highlightCombo);
 
     auto *clearBtn = new QPushButton(tr("\u2715"), toolbar);  // ✕

@@ -937,9 +937,15 @@ void ThumbnailGrid::applyImageThumb(int row, const QString &path, const QImage &
         p.drawText(badge, Qt::AlignCenter, "!");
         p.end();
         m_model->updatePix(visibleRow, display);
+        // 同步全量缓存（筛选/取消筛选后不丢缩略图）
+        for (ThumbItem &ai : m_allItems)
+            if (!ai.isDir && ai.path == path) { ai.pix = display; break; }
         return;
     }
     m_model->updatePix(visibleRow, pix);
+    // 同步全量缓存（筛选/取消筛选后不丢缩略图）
+    for (ThumbItem &ai : m_allItems)
+        if (!ai.isDir && ai.path == path) { ai.pix = pix; break; }
 }
 
 void ThumbnailGrid::applyFolderThumb(int row, const QImage &img, int token) {
@@ -950,6 +956,8 @@ void ThumbnailGrid::applyFolderThumb(int row, const QImage &img, int token) {
     int visibleRow = findModelRow(m_allItems[row].path);
     if (visibleRow >= 0)
         m_model->updatePix(visibleRow, QPixmap::fromImage(img));
+    // 同步全量缓存（筛选/取消筛选后不丢文件夹拼图）
+    m_allItems[row].pix = QPixmap::fromImage(img);
 }
 
 void ThumbnailGrid::wheelEvent(QWheelEvent *e) {
