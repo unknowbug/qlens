@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Solution>
+	<Configurations>
+		<BuildType Name="Debug"/>
+		<BuildType Name="Release"/>
+		<BuildType Name="MinSizeRel"/>
+		<BuildType Name="RelWithDebInfo"/>
+		<Platform Name="x64"/>
+	</Configurations>
+	<Project Path="ALL_BUILD.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="e25ec91d-32f7-3d00-a5d5-c981b3fc18f1" DefaultStartup="true">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="qlens_decode.vcxproj"/>
+		<BuildDependency Project="qlens_quickview.vcxproj"/>
+		<Build Solution="Debug|*" Project="false"/>
+		<Build Solution="Release|*" Project="false"/>
+		<Build Solution="MinSizeRel|*" Project="false"/>
+		<Build Solution="RelWithDebInfo|*" Project="false"/>
+	</Project>
+	<Project Path="ZERO_CHECK.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="bf0638b1-2ea8-318f-b9ab-300e56d07d34"/>
+	<Project Path="qlens_decode.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="203aefef-cefd-3257-8a90-f40c8ee03915">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="qlens_quickview.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="d63a88e6-13d7-340f-a3ec-a35216c8fc53">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="qlens_decode.vcxproj"/>
+	</Project>
+</Solution>

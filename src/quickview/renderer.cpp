@@ -14,6 +14,7 @@
 #include <math.h>
 #include "decoder.h"
 #include "thumbstrip.h"
+#include "i18n.h"
 #include "hdr.h"
 extern ThumbStrip g_strip;
 
@@ -674,7 +675,7 @@ static void DrawButtons(unsigned char *frame, int winW, int winH, bool is16f = f
     g_btnPrevX = cx - 82; g_btnPrevY = y0;   // ◀ 宽44，中心 cx-60
     g_btnNextX = cx + 38; g_btnNextY = y0;   // ▶ 宽44，中心 cx+60
     RenderButtonGDI(frame, winW, winH, g_btnPrevX, g_btnPrevY, 44, 36, L"\u25C0", g_hoverBtn == 1, 14, 14, is16f);
-    RenderButtonGDI(frame, winW, winH, g_btnMgrX,  g_btnMgrY,  60, 36, L"Manage", g_hoverBtn == 3, 14, 14, is16f);
+    RenderButtonGDI(frame, winW, winH, g_btnMgrX,  g_btnMgrY,  60, 36, I18n::Get(L"管理器"), g_hoverBtn == 3, 14, 14, is16f);
     RenderButtonGDI(frame, winW, winH, g_btnNextX, g_btnNextY, 44, 36, L"\u25B6", g_hoverBtn == 2, 14, 14, is16f);
 }
 

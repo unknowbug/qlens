@@ -1,2 +1,3 @@
 // QLens QuickView 资源——图标
+#define IDI_QLENS 101
 IDI_QLENS ICON "QLens.ico"

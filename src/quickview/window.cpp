@@ -12,6 +12,7 @@
 using namespace Microsoft::WRL;
 #include "thumbstrip.h"
 #include "decoder.h"
+#include "i18n.h"
 #include <thread>
 #include <atomic>
 
@@ -388,7 +389,10 @@ static void SaveAsDialog(HWND hwnd)
     PathRemoveExtensionW(file);
     wcscat_s(file, L".png");
     // 保存对话框：PNG / JPEG 过滤
-    wchar_t filter[] = L"PNG 图片 (*.png)\0*.png\0JPEG 图片 (*.jpg;*.jpeg)\0*.jpg;*.jpeg\0\0";
+    std::wstring pngLabel = std::wstring(I18n::Get(L"PNG 图片")) + L" (*.png)";
+    std::wstring jpgLabel = std::wstring(I18n::Get(L"JPEG 图片")) + L" (*.jpg;*.jpeg)";
+    wchar_t filter[256];
+    swprintf_s(filter, 256, L"%s\0*.png\0%s\0*.jpg;*.jpeg\0\0", pngLabel.c_str(), jpgLabel.c_str());
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = hwnd;
@@ -574,9 +578,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         if (g_d3dReady) RendererRender();
         // 解码失败提示（画面中央）
         if (g_lastError != 0) {
-            const wchar_t *msg = L"无法加载图片";
-            if (g_lastError == QLERR_NOT_SUPPORTED) msg = L"不支持的图片格式";
-            else if (g_lastError == QLERR_IO) msg = L"无法读取文件";
+            const wchar_t *msg = I18n::Get(L"无法加载图片");
+            if (g_lastError == QLERR_NOT_SUPPORTED) msg = I18n::Get(L"不支持的图片格式");
+            else if (g_lastError == QLERR_IO) msg = I18n::Get(L"无法读取文件");
             RECT rc; GetClientRect(hwnd, &rc);
             SetBkMode(ps.hdc, TRANSPARENT);
             SetTextColor(ps.hdc, RGB(200, 200, 200));
@@ -629,16 +633,25 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_CONTEXTMENU: {
         // 弹出右键菜单（含快捷键标注）
         HMENU menu = CreatePopupMenu();
-        AppendMenuW(menu, MF_STRING, IDM_LEFT,    L"左旋转\tQ");
-        AppendMenuW(menu, MF_STRING, IDM_RIGHT,   L"右旋转\tE");
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, IDM_ZOOMIN,  L"放大\tCtrl +");
-        AppendMenuW(menu, MF_STRING, IDM_ZOOMOUT, L"缩小\tCtrl -");
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, IDM_COPY,    L"复制\tCtrl+C");
-        AppendMenuW(menu, MF_STRING, IDM_SAVEAS,  L"另存为...\tCtrl+Shift+S");
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, IDM_DELETE,  L"删除\tDel");
+        {
+            std::wstring s1 = std::wstring(I18n::Get(L"左旋转")) + L"\tQ";
+            std::wstring s2 = std::wstring(I18n::Get(L"右旋转")) + L"\tE";
+            std::wstring s3 = std::wstring(I18n::Get(L"放大")) + L"\tCtrl +";
+            std::wstring s4 = std::wstring(I18n::Get(L"缩小")) + L"\tCtrl -";
+            std::wstring s5 = std::wstring(I18n::Get(L"复制")) + L"\tCtrl+C";
+            std::wstring s6 = std::wstring(I18n::Get(L"另存为")) + L"...\tCtrl+Shift+S";
+            std::wstring s7 = std::wstring(I18n::Get(L"删除")) + L"\tDel";
+            AppendMenuW(menu, MF_STRING, IDM_LEFT,    s1.c_str());
+            AppendMenuW(menu, MF_STRING, IDM_RIGHT,   s2.c_str());
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, IDM_ZOOMIN,  s3.c_str());
+            AppendMenuW(menu, MF_STRING, IDM_ZOOMOUT, s4.c_str());
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, IDM_COPY,    s5.c_str());
+            AppendMenuW(menu, MF_STRING, IDM_SAVEAS,  s6.c_str());
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, IDM_DELETE,  s7.c_str());
+        }
         POINT pt = { (short)LOWORD(lp), (short)HIWORD(lp) };
         int cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, nullptr);
         DestroyMenu(menu);

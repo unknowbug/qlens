@@ -1,0 +1,43 @@
+# QLens QuickView 语言文件
+# 复制为 qlens.po 放到 exe 同目录即可切换界面语言（默认无 .po 时中文）
+# 格式：msgid "中文原文" / msgstr "目标语言翻译"
+# 翻译后请删除本注释行
+
+msgid "管理器"
+msgstr "Manager"
+
+msgid "左旋转"
+msgstr "Rotate Left"
+
+msgid "右旋转"
+msgstr "Rotate Right"
+
+msgid "放大"
+msgstr "Zoom In"
+
+msgid "缩小"
+msgstr "Zoom Out"
+
+msgid "复制"
+msgstr "Copy"
+
+msgid "另存为"
+msgstr "Save As"
+
+msgid "删除"
+msgstr "Delete"
+
+msgid "无法加载图片"
+msgstr "Cannot load image"
+
+msgid "不支持的图片格式"
+msgstr "Unsupported image format"
+
+msgid "无法读取文件"
+msgstr "Cannot read file"
+
+msgid "PNG 图片"
+msgstr "PNG image"
+
+msgid "JPEG 图片"
+msgstr "JPEG image"

@@ -1,5 +1,6 @@
 ﻿#include <windows.h>
 #include <stdio.h>
+#include "i18n.h"
 
 #define IDI_QLENS 101  // qlens.rc 图标资源
 
@@ -64,6 +65,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
         }
     }
     if (monitorIdx >= 0) SetStartMonitorIndex(monitorIdx);
+    // 加载语言（qlens_config.ini 的 language → language/<Lang>.po；默认中文）
+    I18n::LoadFromConfig();
 
     if (imgPath[0]) LoadFileByPath(g_mainHwnd, imgPath);
 

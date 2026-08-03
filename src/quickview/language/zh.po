@@ -1,0 +1,42 @@
+# QLens 界面语言：中文
+# 中文是 QLens 的默认语言——本文件作为"中文语言包"存在（msgstr 与 msgid 相同或为空）
+# 其他语言包参考 English.po 的格式（msgid=中文，msgstr=目标语言）
+
+msgid "管理器"
+msgstr ""
+
+msgid "左旋转"
+msgstr ""
+
+msgid "右旋转"
+msgstr ""
+
+msgid "放大"
+msgstr ""
+
+msgid "缩小"
+msgstr ""
+
+msgid "复制"
+msgstr ""
+
+msgid "另存为"
+msgstr ""
+
+msgid "删除"
+msgstr ""
+
+msgid "无法加载图片"
+msgstr ""
+
+msgid "不支持的图片格式"
+msgstr ""
+
+msgid "无法读取文件"
+msgstr ""
+
+msgid "PNG 图片"
+msgstr ""
+
+msgid "JPEG 图片"
+msgstr ""
