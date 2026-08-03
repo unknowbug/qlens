@@ -7,6 +7,9 @@
 #include <shlwapi.h>
 #include <shellapi.h>
 #include <commdlg.h>
+#include <wincodec.h>
+#include <wrl/client.h>
+using namespace Microsoft::WRL;
 #include "thumbstrip.h"
 #include "decoder.h"
 #include <thread>
@@ -375,18 +378,78 @@ static void DeleteCurrentToRecycle()
 static void SaveAsDialog(HWND hwnd)
 {
     if (g_curFile.empty()) return;
+    // 解码当前图（8bit 转换：HDR tone map 已处理）
+    DecodedImage img;
+    if (!DecodeImageFile(g_curFile, img) || img.width < 1 || img.height < 1) return;
+
     wchar_t file[MAX_PATH] = {};
+    // 默认名 = 原文件名（换扩展名）
     wcscpy_s(file, g_curFile.c_str());
+    PathRemoveExtensionW(file);
+    wcscat_s(file, L".png");
+    // 保存对话框：PNG / JPEG 过滤
+    wchar_t filter[] = L"PNG 图片 (*.png)\0*.png\0JPEG 图片 (*.jpg;*.jpeg)\0*.jpg;*.jpeg\0\0";
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = hwnd;
     ofn.lpstrFile = file;
     ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_OVERWRITEPROMPT;
-    if (GetSaveFileNameW(&ofn)) {
-        // 复制原文件到目标
-        CopyFileW(g_curFile.c_str(), ofn.lpstrFile, FALSE);
+    ofn.lpstrFilter = filter;
+    ofn.nFilterIndex = 1;
+    ofn.lpstrDefExt = L"png";
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    if (!GetSaveFileNameW(&ofn)) return;
+
+    // 判断目标格式（按扩展名 + 过滤器）
+    bool isJpeg = (ofn.nFilterIndex == 2);
+    const wchar_t *pExt = PathFindExtensionW(file);
+    if (pExt && (_wcsicmp(pExt, L".jpg") == 0 || _wcsicmp(pExt, L".jpeg") == 0)) isJpeg = true;
+    if (pExt && _wcsicmp(pExt, L".png") == 0) isJpeg = false;
+
+    // WIC 编码保存
+    ComPtr<IWICImagingFactory> factory;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&factory)))) return;
+    ComPtr<IStream> stream;
+    if (FAILED(SHCreateStreamOnFileEx(file, STGM_CREATE | STGM_WRITE, 0, TRUE, nullptr, &stream))) return;
+    ComPtr<IWICBitmapEncoder> encoder;
+    GUID container = isJpeg ? GUID_ContainerFormatJpeg : GUID_ContainerFormatPng;
+    if (FAILED(factory->CreateEncoder(container, nullptr, &encoder)) ||
+        FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache))) return;
+    ComPtr<IWICBitmapFrameEncode> frame;
+    ComPtr<IPropertyBag2> props;
+    if (FAILED(encoder->CreateNewFrame(&frame, &props)) ||
+        FAILED(frame->Initialize(props.Get())) ||
+        FAILED(frame->SetSize(img.width, img.height))) return;
+
+    if (isJpeg) {
+        // JPEG：24bppBGR（无 alpha），去掉 A 通道
+        WICPixelFormatGUID pf = GUID_WICPixelFormat24bppBGR;
+        if (FAILED(frame->SetPixelFormat(&pf))) return;
+        std::vector<unsigned char> bgr((size_t)img.width * img.height * 3);
+        int stride = img.stride ? img.stride : img.width * 4;
+        for (int y = 0; y < img.height; ++y) {
+            const unsigned char *src = img.pixels + (size_t)y * stride;
+            unsigned char *dst = bgr.data() + (size_t)y * img.width * 3;
+            for (int x = 0; x < img.width; ++x) {
+                dst[x*3+0] = src[x*4+0];  // B
+                dst[x*3+1] = src[x*4+1];  // G
+                dst[x*3+2] = src[x*4+2];  // R
+            }
+        }
+        if (FAILED(frame->WritePixels(img.height, img.width * 3, (UINT)bgr.size(), bgr.data()))) return;
+    } else {
+        // PNG：32bppBGRA（保留 alpha）
+        WICPixelFormatGUID pf = GUID_WICPixelFormat32bppBGRA;
+        if (FAILED(frame->SetPixelFormat(&pf))) return;
+        int stride = img.stride ? img.stride : img.width * 4;
+        std::vector<unsigned char> bgra((size_t)img.width * img.height * 4);
+        for (int y = 0; y < img.height; ++y)
+            memcpy(bgra.data() + (size_t)y * img.width * 4, img.pixels + (size_t)y * stride, (size_t)img.width * 4);
+        if (FAILED(frame->WritePixels(img.height, img.width * 4, (UINT)bgra.size(), bgra.data()))) return;
     }
+    frame->Commit();
+    encoder->Commit();
 }
 
 // 统一翻页：加载图片 + 更新缩略图条（异步解码，不卡 UI）
