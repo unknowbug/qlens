@@ -7,6 +7,7 @@ LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
 bool CreateMainWindow(HINSTANCE);
 extern HWND g_mainHwnd;
 void LoadFileByPath(HWND, const wchar_t*);
+void RegisterFileAssociations();
 
 static LONG WINAPI CrashFilter(EXCEPTION_POINTERS *ep)
 {
@@ -35,6 +36,9 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
 
     // 加载插件（exe 旁 plugins/ 目录）
     QLensPlugins_LoadFromExeDir();
+
+    // 注册系统默认看图器（每次启动刷新，HKCU 无需管理员）
+    RegisterFileAssociations();
 
     // 命令行传图则打开
     if (pCmdLine && *pCmdLine) LoadFileByPath(g_mainHwnd, pCmdLine);

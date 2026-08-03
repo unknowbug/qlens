@@ -153,6 +153,51 @@ void LoadFileByPath(HWND hwnd, const wchar_t *path)
     if (g_hwnd) InvalidateRect(g_hwnd, nullptr, TRUE);
 }
 
+// ── 注册系统默认看图器（HKCU，无需管理员）──
+void RegisterFileAssociations()
+{
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+
+    // 1. ProgID：QLensQuickView
+    std::wstring progKey = L"Software\\Classes\\QLensQuickView";
+    HKEY hk;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, progKey.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &hk, nullptr) == ERROR_SUCCESS) {
+        const wchar_t *desc = L"QLens Image Viewer";
+        RegSetValueExW(hk, L"", 0, REG_SZ, (const BYTE*)desc, (DWORD)(wcslen(desc)*sizeof(wchar_t)));
+        RegCloseKey(hk);
+    }
+    // DefaultIcon
+    std::wstring iconKey = progKey + L"\\DefaultIcon";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, iconKey.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &hk, nullptr) == ERROR_SUCCESS) {
+        std::wstring ico = std::wstring(L"\"") + exe + L"\",0";
+        RegSetValueExW(hk, L"", 0, REG_SZ, (const BYTE*)ico.c_str(), (DWORD)(ico.size()*sizeof(wchar_t)));
+        RegCloseKey(hk);
+    }
+    // open command
+    std::wstring cmdKey = progKey + L"\\shell\\open\\command";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, cmdKey.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &hk, nullptr) == ERROR_SUCCESS) {
+        std::wstring cmd = std::wstring(L"\"") + exe + L"\" \"%1\"";
+        RegSetValueExW(hk, L"", 0, REG_SZ, (const BYTE*)cmd.c_str(), (DWORD)(cmd.size()*sizeof(wchar_t)));
+        RegCloseKey(hk);
+    }
+
+    // 2. 扩展名关联
+    const wchar_t *exts[] = { L".jpg", L".jpeg", L".png", L".webp", L".bmp", L".gif", L".svg" };
+    for (auto ext : exts) {
+        std::wstring openKey = std::wstring(L"Software\\Classes\\") + ext + L"\\OpenWithProgids";
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, openKey.c_str(), 0, nullptr, 0,
+            KEY_WRITE, nullptr, &hk, nullptr) == ERROR_SUCCESS) {
+            const wchar_t *pid = L"QLensQuickView";
+            RegSetValueExW(hk, pid, 0, REG_SZ, (const BYTE*)L"", 1);
+            RegCloseKey(hk);
+        }
+    }
+}
+
 // 右键菜单项 ID
 enum { IDM_LEFT = 1, IDM_RIGHT, IDM_ZOOMIN, IDM_ZOOMOUT, IDM_COPY, IDM_SAVEAS, IDM_DELETE };
 
