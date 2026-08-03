@@ -58,7 +58,9 @@ static bool g_isHdrImage = false;  // 源图是高位深（真 HDR 图）
 static float g_highRatio = 0.0f;   // 高光像素比例（>0.8 亮度占比，亮图降高光）
 static int g_pixFmt = 0;           // 0=BGRA8, 1=RGBA16F（scRGB 线性，HDR 直通）
 static bool g_debugMode = false;   // DEBUG 开关（F12）——显示格式状态
+static HWND g_hwnd = nullptr;      // 主窗口（HDR 检测按窗口所在显示器）
 void RendererToggleDebug() { g_debugMode = !g_debugMode; }
+bool RendererIsDebug() { return g_debugMode; }
 // 主图平移（放大后拖动查看）
 static int g_panX = 0, g_panY = 0;
 static float g_lastFit = 1.0f;  // 最近一次渲染的 fit 比例（滚轮从适配缩放时用）
@@ -96,6 +98,7 @@ bool RendererIsHDR() { return g_hdrMode; }
 
 void RendererInit(HWND hwnd)
 {
+    g_hwnd = hwnd;
     g_hdrMode = HdrEnabled();
 
     DXGI_SWAP_CHAIN_DESC scd = {};
@@ -680,16 +683,26 @@ static void DrawDebugInfo(unsigned char *frame, int winW, int winH, bool is16f)
     wchar_t buf[512];
     const wchar_t *fmt = (g_pixFmt == 1) ? L"16F" : L"8bit";
     int rotAll = (g_rotation + (g_exifRot == 6 ? 1 : g_exifRot == 8 ? 3 : g_exifRot == 3 ? 2 : 0)) % 4;
-    wsprintfW(buf, L"FMT: %s\nIMG: %dx%d\nWIN: %dx%d\nZOOM: %.2f\nROT: %d (exif %d)\nPAN: %d,%d\nPEAK: %.0f nit (HDR:%d)",
+    // 当前窗口所在显示器（多显示器准确）
+    wchar_t monName[64] = L"?";
+    if (g_hwnd) {
+        HMONITOR mon = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFOEXW mi; mi.cbSize = sizeof(mi);
+        if (GetMonitorInfoW(mon, &mi)) {
+            const wchar_t *p = wcsrchr(mi.szDevice, L'\\');
+            wcsncpy_s(monName, p ? p + 1 : mi.szDevice, 63);
+        }
+    }
+    swprintf_s(buf, 512, L"FMT: %s\nIMG: %dx%d\nWIN: %dx%d\nZOOM: %.2f\nROT: %d (exif %d)\nPAN: %d,%d\nMON: %s HDR:%d PEAK:%.0f",
         fmt, g_imgW, g_imgH, winW, winH, g_zoom, rotAll, g_exifRot, g_panX, g_panY,
-        HdrDisplayPeakBrightness(), g_hdrMode ? 1 : 0);
+        monName, HdrIsDisplayHDRFor(g_hwnd) ? 1 : 0, HdrDisplayPeakBrightnessFor(g_hwnd));
 
     // 按 \n 拆行（手动逐行 DrawText，可靠多行）
     const wchar_t *lines[8];
     int lineCount = 0;
     {
         wchar_t *p = buf;
-        while (*p && lineCount < 8) {
+        while (*p && lineCount < 10) {
             lines[lineCount++] = p;
             wchar_t *nl = wcschr(p, L'\n');
             if (!nl) break;
