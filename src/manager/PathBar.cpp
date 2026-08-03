@@ -160,7 +160,7 @@ void PathBar::enterEditMode()
         m_edit->setStyleSheet("QLineEdit{background:#1c1c1c; color:#eee; border:1px solid #3a5a9a; selection-background-color:#3a5a9a;}");
         connect(m_edit, &QLineEdit::returnPressed, this, &PathBar::applyEdit);
     }
-    m_edit->setText(QDir::fromNativeSeparators(m_path));
+    m_edit->setText(QDir::toNativeSeparators(m_path));  // Windows 标准 \ 分隔符
     m_edit->setGeometry(0, 0, width(), height());
     m_edit->show();
     m_edit->setFocus();

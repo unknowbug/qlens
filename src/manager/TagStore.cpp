@@ -59,6 +59,7 @@ bool TagStore::open(const QString &folder) {
            "confidence REAL DEFAULT 1.0,"
            "PRIMARY KEY(filename, tag_id))");
     q.exec("CREATE INDEX IF NOT EXISTS idx_image_tags_file ON image_tags(filename)");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_image_tags_tag ON image_tags(tag_id)");  // tag→图 反向查询
     q.exec("PRAGMA journal_mode=WAL");  // 多进程并发（Manager + MCP）
 
     markHidden(dbPath);
