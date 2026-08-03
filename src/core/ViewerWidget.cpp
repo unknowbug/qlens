@@ -4,7 +4,6 @@
 #include "ViewerWidget.h"
 #include "decode_api.h"
 #include "i18n.h"
-#include <cstdio>
 #include <QHBoxLayout>
 #include <QImageReader>
 #include <QThread>
@@ -136,9 +135,9 @@ void ViewerWidget::loadImage(const QString &fp)
 
 void ViewerWidget::decodeAsync(const QString &fp, int idx)
 {
-    // 预缩放上限：至少 1024（首次打开窗口尺寸未就绪时不会解码出过小图）
-    int vp = std::max(m_view->width(), m_view->height()) / 2;
-    if (vp < 1024) vp = 1024;
+    // 解码上限固定 4096：保证"图 < 窗口"的图不被预缩放（100% 显示原始尺寸，修复缩小）
+    // 大图（>4096）预缩放到 4096 再 fit，内存可控
+    int vp = 4096;
 
     auto *t = QThread::create([this, fp, vp, idx]() {
         QImageReader r(fp); r.setAutoTransform(true);
@@ -209,16 +208,6 @@ void ViewerWidget::updateZoom()
     // 否则 fitInView 用 0/极小尺寸算出错误缩放（首次打开缩小的根因）
     int vw = m_view->viewport()->width();
     int vh = m_view->viewport()->height();
-    // 临时调试日志（缩放出 bug 排查——定位后删除）
-    {
-        FILE *f = fopen("E:/PYTHON/qlens/build-qv/viewer_log.txt", "a");
-        if (f) {
-            fprintf(f, "zoom vw=%d vh=%d orig=%dx%d pix=%dx%d zf=%.2f\n",
-                vw, vh, m_origSize.width(), m_origSize.height(),
-                m_original.width(), m_original.height(), m_zoomFactor);
-            fclose(f);
-        }
-    }
     if (vw < 50 || vh < 50) {
         QTimer::singleShot(50, this, [this]() { updateZoom(); });
         return;

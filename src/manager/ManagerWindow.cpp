@@ -317,6 +317,11 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     // 选中变化 → 状态栏（选中数/当前文件大小）
     connect(m_grid->selectionModel(), &QItemSelectionModel::selectionChanged,
             [this]() { updateGridStatus(); });
+    // 打标后刷新筛选/高亮候选
+    connect(m_tagPanel, &TagPanel::tagsChanged,
+            [this](const QString &, const QStringList &) {
+        refreshToolbar(m_grid->currentFolder());
+    });
 
     // ── 启动参数：图片路径 → 打开所在文件夹并查看 ──
     const QStringList args = QCoreApplication::arguments();
@@ -397,7 +402,8 @@ void ManagerWindow::updateNavButtons() {
 // 文件夹变化：更新路径标签 + 刷新过滤/着色候选标签
 void ManagerWindow::refreshToolbar(const QString &path) {
     m_pathBar->setPath(path);
-    QStringList tags = m_grid->folderTags();
+    // 用传入 path 直接查 tag（不依赖 m_grid->m_currentFolder 时序）
+    QStringList tags = TagStore::queryFolderTags(path);
     m_updatingCombo = true;
     m_filterCombo->clear();
     m_highlightCombo->clear();

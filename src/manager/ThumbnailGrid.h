@@ -44,6 +44,10 @@ public:
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
+    // 可编辑（内联重命名需要）
+    Qt::ItemFlags flags(const QModelIndex &index) const override {
+        return QAbstractListModel::flags(index) | Qt::ItemIsEditable;
+    }
     // 拖出：返回选中项的文件 URL（拖到资源管理器 = 复制文件）
     QMimeData *mimeData(const QModelIndexList &indexes) const override;
     QStringList mimeTypes() const override { return {QStringLiteral("text/uri-list")}; }
