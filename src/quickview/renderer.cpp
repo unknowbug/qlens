@@ -116,7 +116,7 @@ cbuffer Params : register(b0) {
     float peakNit;
     float hdrSource;   // 1=源是真 HDR 图（已 tone map 到 SDR 范围，不二次增强）
     float highRatio;   // 高光像素比例（>0.8 亮度占比，亮图自动降高光）
-    float pad0;
+    float uiRatio;     // UI 区域比例（缩略图条起点 = viewH/winH），UI 保持 SDR
 };
 static float srgb2lin(float c) {
     return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
@@ -145,12 +145,13 @@ static float sdr2hdr(float lin) {
 float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     float4 c = tex.Sample(smp, uv);
     if (hdrSource > 0.5) {
-        // 真 HDR 图：tone map 到 8bit 后走 SDR 增强路径（和普通图一致，含高光压缩）
-        // 避免直通 scRGB 在 HDR 屏的显示异常；等 16F 真直通实现后再改
-        float r = srgb2lin(c.r);
-        float g = srgb2lin(c.g);
-        float b = srgb2lin(c.b);
-        return float4(sdr2hdr(r) / 80.0, sdr2hdr(g) / 80.0, sdr2hdr(b) / 80.0, 1.0);
+        // UI 区域（缩略图条/按钮）：保持 SDR（0-1 = 0-80nit），不映射峰值
+        if (uiRatio > 0.0f && uv.y > uiRatio) return float4(c.rgb, 1.0);
+        // 主图区域：先 srgb2lin 再映射峰值 + Reinhard 软压缩（逐分量！srgb2lin 是 float 函数）
+        float3 lin = float3(srgb2lin(c.r), srgb2lin(c.g), srgb2lin(c.b));
+        float3 hdr = lin * (peakNit / 80.0);
+        hdr = hdr / (1.0 + hdr * 0.5 / (peakNit / 80.0));
+        return float4(hdr, 1.0);
     }
     float r = srgb2lin(c.r);
     float g = srgb2lin(c.g);
@@ -772,7 +773,8 @@ void RendererRender()
                 // 常量缓冲：peak
                 float peak = HdrDisplayPeakBrightness();
                 if (peak <= 0.0f) peak = 1000.0f;
-                float cbData[4] = { peak, g_isHdrImage ? 1.0f : 0.0f, g_highRatio, 0 };
+                float cbData[4] = { peak, g_isHdrImage ? 1.0f : 0.0f, g_highRatio,
+                    g_h > 0 ? (float)(g_h - THUMB_H) / (float)g_h : 1.0f };  // uiRatio
                 g_ctx->UpdateSubresource(g_hdrCB.Get(), 0, nullptr, cbData, 0, 0);
 
                 g_ctx->OMSetRenderTargets(1, g_rtv.GetAddressOf(), nullptr);
