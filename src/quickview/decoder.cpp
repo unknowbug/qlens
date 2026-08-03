@@ -99,7 +99,7 @@ static bool WicQuery(const std::wstring &path, DecodeInfo &info)
     if (pf == GUID_WICPixelFormat64bppRGBA || pf == GUID_WICPixelFormat64bppBGRA ||
         pf == GUID_WICPixelFormat48bppRGB || pf == GUID_WICPixelFormat64bppPRGBA ||
         pf == GUID_WICPixelFormat32bppRGBA1010102 || pf == GUID_WICPixelFormat32bppRGBA1010102XR ||
-        pf == GUID_WICPixelFormat64bppRGBAHalf)
+        pf == GUID_WICPixelFormat64bppRGBAHalf || pf == GUID_WICPixelFormat16bppGray)
         info.format = QLPF_RGBA16F;  // 高位深源，解码时转 16F
     else
         info.format = QLPF_BGRA8;
@@ -179,7 +179,7 @@ bool DecodeImageAny(const std::wstring &path, int frame, int targetW, int target
     bool hi = (pf == GUID_WICPixelFormat64bppRGBA || pf == GUID_WICPixelFormat64bppBGRA ||
                pf == GUID_WICPixelFormat48bppRGB || pf == GUID_WICPixelFormat64bppPRGBA ||
                pf == GUID_WICPixelFormat32bppRGBA1010102 || pf == GUID_WICPixelFormat32bppRGBA1010102XR ||
-               pf == GUID_WICPixelFormat64bppRGBAHalf);
+               pf == GUID_WICPixelFormat64bppRGBAHalf || pf == GUID_WICPixelFormat16bppGray);
 
     out.width = (int)w;
     out.height = (int)h;

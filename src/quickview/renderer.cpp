@@ -182,7 +182,8 @@ float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
             float3 lin = float3(srgb2lin(c.r), srgb2lin(c.g), srgb2lin(c.b));
             return float4(lin * (peakNit / 80.0), 1.0);
         }
-        // 主图区域：16F 线性直通（scRGB 1.0=80nit，值已含 HDR 亮度）
+        // 16F 主图：scRGB 物理直通（1.0=80nit，高光>1=真实 HDR 亮度）
+        // 亮度固定硬件参数，不做自适应 tone map（工程决策：显示器各不相同，不能逐图调）
         return float4(c.rgb, 1.0);
     }
     float r = srgb2lin(c.r);
