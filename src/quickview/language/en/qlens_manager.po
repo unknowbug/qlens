@@ -1,0 +1,5 @@
+# QLens Manager UI language: English
+
+msgid "QLens 管理器"
+msgstr "QLens Manager"
+

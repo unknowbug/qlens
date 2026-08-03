@@ -2,6 +2,7 @@
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
+#include "i18n.h"
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QStatusBar>
@@ -36,7 +37,7 @@ static QString picturesFolder()
 #include "thumbnail.h"
 
 ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
-    setWindowTitle("QLens Manager");
+    setWindowTitle(QString::fromWCharArray(I18n::Get(L"QLens 管理器")));
     resize(1400, 900);
     setDockNestingEnabled(true);
 
@@ -309,7 +310,7 @@ void ManagerWindow::openInViewer(const QString &path) {
 
 void ManagerWindow::backToGrid() {
     m_stack->setCurrentIndex(0);
-    setWindowTitle("QLens Manager");
+    setWindowTitle(QString::fromWCharArray(I18n::Get(L"QLens 管理器")));
 }
 
 void ManagerWindow::keyPressEvent(QKeyEvent *e) {

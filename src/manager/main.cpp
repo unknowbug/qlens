@@ -9,6 +9,7 @@
 #include <QDir>
 #include "ManagerWindow.h"
 #include "decode_api.h"
+#include "i18n.h"
 
 // 插件加载入口（qlens_decode 提供，C 链接）
 extern "C" bool QLensPlugins_LoadFromExeDir();
@@ -92,6 +93,8 @@ int main(int argc, char *argv[]) {
 
     // 加载解码插件（exe 旁 plugins/，SVG 等格式）
     QLensPlugins_LoadFromExeDir();
+    // 加载语言（qlens_config.ini language → language/<lang>/qlens_manager.po；默认中文）
+    I18n::LoadForApp(L"qlens_manager");
 
     ManagerWindow w;
     w.showMaximized();

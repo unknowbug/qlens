@@ -13,6 +13,7 @@ set(CORE_SOURCES
     # ── qlens_decode（解码 + 插件系统，从 quickview 并入）──
     ${CMAKE_SOURCE_DIR}/src/quickview/decoder.cpp
     ${CMAKE_SOURCE_DIR}/src/quickview/plugins.cpp
+    ${CMAKE_SOURCE_DIR}/src/quickview/i18n.cpp
 )
 
 add_library(qlens_core SHARED ${CORE_SOURCES})

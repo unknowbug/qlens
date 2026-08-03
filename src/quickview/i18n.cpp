@@ -97,10 +97,10 @@ const wchar_t *Get(const wchar_t *zh)
 
 void Clear() { g_map.clear(); }
 
-// 从配置/系统语言加载对应 .po（language/<code>.po）
+// 从配置/系统语言加载对应 .po（language/<code>/<app>.po）
 // 优先级：qlens_config.ini 的 language（Manager Settings 写）→ 系统 UI 语言
 // 代码：zh=中文(默认) en=English；系统语言无匹配 → 中文
-bool LoadFromConfig()
+bool LoadForApp(const wchar_t *appName)
 {
     g_map.clear();
     wchar_t exeDir[MAX_PATH];
@@ -132,10 +132,15 @@ bool LoadFromConfig()
     // zh → 默认中文（无需 .po）
     if (_wcsicmp(lang, L"zh") == 0) return true;
 
-    // 加载 language/<code>/qlens_quickview.po
+    // 加载 language/<code>/<app>.po
     wchar_t poPath[MAX_PATH];
-    swprintf_s(poPath, MAX_PATH, L"%s\\language\\%s\\qlens_quickview.po", exeDir, lang);
+    swprintf_s(poPath, MAX_PATH, L"%s\\language\\%s\\%s.po", exeDir, lang, appName);
     return Load(poPath);
+}
+
+bool LoadFromConfig()
+{
+    return LoadForApp(L"qlens_quickview");
 }
 
 }
