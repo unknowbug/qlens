@@ -48,7 +48,6 @@ ThumbStrip g_strip;
 static void GenerateThumbs();
 std::wstring g_curFile;
 static HWND g_hwnd = nullptr;
-static HMONITOR g_startMonitor = nullptr;  // 启动显示器（非 DEBUG 锁定，Picasa 风格）
 static std::vector<std::wstring> g_files;
 static int g_curIdx = -1;
 static const wchar_t *IMG_EXTS[] = { L".jpg",L".jpeg",L".png",L".webp",L".bmp",L".gif",L".tif",L".tiff",L".svg",L".heic",L".heif",L".avif",L".jxr",L".wdp" };
@@ -163,7 +162,6 @@ static void LoadDirFiles(const std::wstring &path)
 void LoadFileByPath(HWND hwnd, const wchar_t *path)
 {
     if (hwnd) g_hwnd = hwnd;
-    if (g_hwnd && !g_startMonitor) g_startMonitor = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
     g_curFile = path;
     LoadDirFiles(path);
     RendererEnsureInit(g_hwnd);
@@ -523,7 +521,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         else if (wp == 'S' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) { SaveAsDialog(hwnd); }
         else if (wp == 'F' || wp == 'f') { RendererSetZoom(1.0f); InvalidateRect(hwnd, nullptr, TRUE); }
         else if (wp == 'S' || wp == 's') { RendererSetZoom(0.0f); InvalidateRect(hwnd, nullptr, TRUE); }
-        else if (wp == VK_F12) { RendererToggleDebug(); if (!RendererIsDebug() && g_hwnd) g_startMonitor = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST); InvalidateRect(hwnd, nullptr, TRUE); }  // DEBUG 开关
+        else if (wp == VK_F12) { RendererToggleDebug(); InvalidateRect(hwnd, nullptr, TRUE); }  // DEBUG 开关
         else handled = false;
         return handled ? 0 : DefWindowProcW(hwnd, msg, wp, lp);
     }
@@ -567,24 +565,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     }
-    case WM_MOVING: {
-        // 非 DEBUG 时锁定启动显示器（Picasa 风格：不换屏，注意力集中看图）
-        RECT *rc = (RECT*)lp;
-        if (!RendererIsDebug() && g_startMonitor && rc) {
-            MONITORINFO mi = { sizeof(mi) };
-            if (GetMonitorInfoW(g_startMonitor, &mi)) {
-                // 窗口中心钳制在当前屏工作区内
-                int w = rc->right - rc->left, h = rc->bottom - rc->top;
-                int cx = (rc->left + rc->right) / 2, cy = (rc->top + rc->bottom) / 2;
-                if (cx < mi.rcWork.left) { rc->left = mi.rcWork.left; rc->right = rc->left + w; }
-                if (cx > mi.rcWork.right) { rc->right = mi.rcWork.right; rc->left = rc->right - w; }
-                if (cy < mi.rcWork.top) { rc->top = mi.rcWork.top; rc->bottom = rc->top + h; }
-                if (cy > mi.rcWork.bottom) { rc->bottom = mi.rcWork.bottom; rc->top = rc->bottom - h; }
-                return 0;
-            }
-        }
-        return DefWindowProcW(hwnd, msg, wp, lp);
-    }
     case WM_NCHITTEST: {        // 无边框窗口：允许拖动（返回 HTCAPTION），但关闭按钮区域返回 HTCLIENT
         POINT pt = { (short)LOWORD(lp), (short)HIWORD(lp) };
         ScreenToClient(hwnd, &pt);
@@ -592,7 +572,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         if (btn == 4) return HTCLIENT;  // 关闭按钮可点击
         // 顶部 40px 可拖动
         RECT rc; GetClientRect(hwnd, &rc);
-        if (pt.y < 40) return HTCAPTION;
+        // 无边框窗口：禁止拖动窗体（Picasa 风格——极简，注意力集中看图）
+        // 关闭按钮区域已在上方命中 HTCLIENT
         return HTCLIENT;
     }
     case WM_MOUSEMOVE: {
