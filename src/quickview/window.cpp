@@ -162,11 +162,30 @@ static void LoadDirFiles(const std::wstring &path)
         if (_wcsicmp(a.c_str(), b.c_str()) == 0) { g_curIdx = (int)i; break; }
     }
 }
+// 启动 Manager（exe 同目录 qlens_manager.exe；传当前文件夹路径）
+static void LaunchManager(HWND hwnd)
+{
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    wchar_t dir[MAX_PATH];
+    wcscpy_s(dir, exe);
+    PathRemoveFileSpecW(dir);
+    std::wstring mgr = std::wstring(dir) + L"\\qlens_manager.exe";
+    // 传当前图片所在文件夹
+    std::wstring arg;
+    if (!g_curFile.empty()) {
+        wchar_t folder[MAX_PATH];
+        wcscpy_s(folder, g_curFile.c_str());
+        PathRemoveFileSpecW(folder);
+        arg = L"\"" + std::wstring(folder) + L"\"";
+    }
+    ShellExecuteW(nullptr, L"open", mgr.c_str(), arg.empty() ? nullptr : arg.c_str(), nullptr, SW_SHOWNORMAL);
+}
+
 void LoadFileByPath(HWND hwnd, const wchar_t *path)
 {
     if (hwnd) g_hwnd = hwnd;
-    g_curFile = path;
-    LoadDirFiles(path);
+    g_curFile = path;    LoadDirFiles(path);
     RendererEnsureInit(g_hwnd);
     StartAnimationIfGif(g_curFile);
     RequestLoadAsync(g_curFile);
@@ -264,9 +283,11 @@ static void CopyCurrentImage()
     {
         DecodedImage img;
         if (DecodeImageFile(g_curFile, img) && img.width > 0 && img.height > 0) {
-            // 若最长边 > 1600，降采样（Picasa 风格：粘贴 QQ 不爆大小）
+            // 位图 = 当前窗口大小（所见即所得，Picasa 风格——避免超大图爆掉聊天软件位图粘贴上限）
             int w = img.width, h = img.height;
-            const int MAX_SIDE = 1600;
+            int winW = 0, winH = 0;
+            if (g_hwnd) { RECT rc; if (GetClientRect(g_hwnd, &rc)) { winW = rc.right; winH = rc.bottom; } }
+            const int MAX_SIDE = (winW > 0 && winH > 0) ? (winW > winH ? winW : winH) : 1600;
             std::vector<unsigned char> buf;  // compressed BGRA pixels
             if (w > MAX_SIDE || h > MAX_SIDE) {
                 float scale = (float)MAX_SIDE / (w > h ? w : h);
@@ -615,6 +636,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             }
         }
         return 0;
+    case WM_LBUTTONDBLCLK: {
+        // 双击进 Manager（打开当前图片所在文件夹）
+        LaunchManager(hwnd);
+        return 0;
+    }
     case WM_LBUTTONDOWN: {
         int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
         RECT rc; GetClientRect(hwnd, &rc);
@@ -624,13 +650,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         if (btn == 1) { if (g_curIdx > 0) NavTo(g_curIdx - 1, hwnd); return 0; }
         if (btn == 2) { if (g_curIdx < (int)g_files.size()-1) NavTo(g_curIdx + 1, hwnd); return 0; }
         if (btn == 3) {
-            // 启动 Manager
-            wchar_t exe[MAX_PATH];
-            GetModuleFileNameW(nullptr, exe, MAX_PATH);
-            wchar_t dir[MAX_PATH];
-            wcscpy_s(dir, exe);
-            PathRemoveFileSpecW(dir);
-            ShellExecuteW(nullptr, L"open", (std::wstring(dir) + L"\\qlens_manager.exe").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            // 启动 Manager（复用 LaunchManager）
+            LaunchManager(hwnd);
             return 0;
         }
         int idx = g_strip.hitTest(x, y, rc.bottom);

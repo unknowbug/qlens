@@ -72,6 +72,36 @@ QLens owns *how tags get written* (execution); *what you do with tagged photos* 
 
 ---
 
+## QuickView (qlens_quickview)
+
+**Current primary image viewer** — native Win32 + D3D11, no Qt dependency, exe only **~160KB**.
+
+### Highlights
+
+| Feature | Description |
+|---------|-------------|
+| **True HDR support** | 16F full-precision passthrough pipeline — JXR/high-bitdepth HEIC/AVIF HDR brightness displayed correctly (1.0=80nit scRGB physical standard), SDR images get SDR→HDR upconversion |
+| **Ultra small** | Single exe ~160KB, no Qt/runtime dependency (WIC decode + system DLLs) |
+| **Instant launch** | Native Win32 minimalist architecture, opens immediately |
+| **Minimal but complete** | Zoom/page/thumbnail strip/rotate/copy/save-as/delete/context menu/fullscreen — everything a viewer needs, nothing more |
+| **Picasa-style copy** | `Ctrl+C` bitmap = **current window size** (what-you-see-is-what-you-get) — pasting huge images into QQ/WeChat etc. won't blow the bitmap size limit; also provides file (CF_HDROP) + path (CF_UNICODETEXT) formats |
+| **HDR calibration** | Built-in `gen_hdrtest.exe` generates 0-10000nit block test image — customers can verify their monitor's real HDR peak |
+| **Plugin extension** | Decode plugins (HEIC/SVG etc.) dynamically loaded — new formats supported by adding a DLL |
+
+### Shortcuts
+
+```
+Wheel           Page (Ctrl+Wheel = zoom)
+←/→             Previous/next
+F / S           100% original / fit window
+Q / E           Rotate left/right
+Ctrl+C          Copy (bitmap=window size + file + path)
+Ctrl+Shift+S    Save as
+Del             Delete to recycle bin
+F12             DEBUG info (format/monitor/HDR state)
+--monitor N     Start on specified monitor
+```
+
 ## Components
 
 | Component | Description |
