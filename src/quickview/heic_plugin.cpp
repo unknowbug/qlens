@@ -17,6 +17,7 @@ typedef void(*fn_handle_release)(void*);
 typedef int(*fn_handle_w)(void*);
 typedef int(*fn_handle_h)(void*);
 typedef int(*fn_handle_alpha)(void*);
+typedef int(*fn_handle_bits)(void*);
 typedef heif_error(*fn_decode)(void*, void**, int, int, void*);
 typedef void(*fn_img_release)(void*);
 typedef int(*fn_img_w)(void*, int);  // (img, channel)
@@ -26,7 +27,7 @@ typedef const unsigned char*(*fn_plane)(void*, int, int*);
 static HMODULE g_heifLib = nullptr;
 static fn_ctx_alloc pfAlloc; static fn_ctx_free pfFree;
 static fn_ctx_read_file pfRead; static fn_ctx_primary pfPrimary;
-static fn_handle_release pfHRelease; static fn_handle_w pfHW; static fn_handle_h pfHH; static fn_handle_alpha pfHAlpha;
+static fn_handle_release pfHRelease; static fn_handle_w pfHW; static fn_handle_h pfHH; static fn_handle_alpha pfHAlpha; static fn_handle_bits pfHBits;
 static fn_decode pfDecode; static fn_img_release pfImgRelease;
 static fn_img_w pfIW; static fn_img_h pfIH; static fn_plane pfPlane;
 
@@ -55,6 +56,7 @@ static bool LoadHeif()
     pfHW = (fn_handle_w)GetProcAddress(g_heifLib, "heif_image_handle_get_width");
     pfHH = (fn_handle_h)GetProcAddress(g_heifLib, "heif_image_handle_get_height");
     pfHAlpha = (fn_handle_alpha)GetProcAddress(g_heifLib, "heif_image_handle_has_alpha_channel");
+    pfHBits = (fn_handle_bits)GetProcAddress(g_heifLib, "heif_image_handle_get_luma_bits_per_pixel");
     pfDecode = (fn_decode)GetProcAddress(g_heifLib, "heif_decode_image");
     pfImgRelease = (fn_img_release)GetProcAddress(g_heifLib, "heif_image_release");
     pfIW = (fn_img_w)GetProcAddress(g_heifLib, "heif_image_get_width");
@@ -77,6 +79,19 @@ static std::string WideToUtf8(const wchar_t *w)
     return s;
 }
 
+// float → half（位操作，scRGB 值 0-8 无次正规问题）
+static inline unsigned short f2h(float f)
+{
+    if (f <= 0.0f) return 0;
+    unsigned b; memcpy(&b, &f, 4);
+    unsigned sign = (b >> 16) & 0x8000u;
+    int e = (int)((b >> 23) & 0xFFu) - 127 + 15;
+    unsigned m = (b >> 13) & 0x3FFu;
+    if (e >= 31) return (unsigned short)(sign | 0x7BFFu);
+    if (e <= 0) return (unsigned short)sign;
+    return (unsigned short)(sign | ((unsigned)e << 10) | m);
+}
+
 // ── query ──
 static bool heic_query(const wchar_t *path, DecodeInfo *info)
 {
@@ -91,7 +106,8 @@ static bool heic_query(const wchar_t *path, DecodeInfo *info)
     if (er.code != 0 || !handle) { pfFree(ctx); return false; }
     int w = pfHW(handle), h = pfHH(handle);
     int hasAlpha = pfHAlpha(handle);
-    info->format = QLPF_BGRA8;   // 8bit SDR 主图
+    int bits = pfHBits ? pfHBits(handle) : 8;
+    info->format = (bits > 8) ? QLPF_RGBA16F : QLPF_BGRA8;  // 高位深 → 16F
     info->frames = 1;
     info->suggestW = w; info->suggestH = h;
     info->rotateW = w; info->rotateH = h;
@@ -115,27 +131,42 @@ static bool heic_decode(const wchar_t *path, int frame, int targetW, int targetH
     void *handle = nullptr;
     er = pfPrimary(ctx, &handle);
     if (er.code != 0 || !handle) { pfFree(ctx); return false; }
-    void *img = nullptr;
-    // heif_colorspace_RGB=1, heif_chroma_interleaved_RGBA=11
-    er = pfDecode(handle, &img, 1, 11, nullptr);
-    if (er.code != 0 || !img) { pfHRelease(handle); pfFree(ctx); return false; }
-    // 用 handle 宽高（interleaved 图的 get_width 对 channel 特殊返回 -1）
     int w = pfHW(handle), h = pfHH(handle);
+    int bits = pfHBits ? pfHBits(handle) : 8;
+    void *img = nullptr;
+    er = pfDecode(handle, &img, 1, (bits > 8) ? 15 /*RRGGBBAA_LE 16bit*/ : 11 /*RGBA 8bit*/, nullptr);
+    if (er.code != 0 || !img) { pfHRelease(handle); pfFree(ctx); return false; }
     int stride = 0;
     const unsigned char *plane = pfPlane(img, 10 /*heif_channel_interleaved*/, &stride);
-    if (!plane || w < 1 || h < 1 || stride < w * 4) { pfImgRelease(img); pfHRelease(handle); pfFree(ctx); return false; }
+    int pxSize = (bits > 8) ? 8 : 4;
+    if (!plane || w < 1 || h < 1 || stride < w * pxSize) { pfImgRelease(img); pfHRelease(handle); pfFree(ctx); return false; }
 
-    // RGBA → BGRA8 紧凑
-    unsigned char *pix = new (std::nothrow) unsigned char[(size_t)w * h * 4];
+    unsigned char *pix = new (std::nothrow) unsigned char[(size_t)w * h * (bits > 8 ? 8 : 4)];
     if (!pix) { pfImgRelease(img); pfHRelease(handle); pfFree(ctx); return false; }
-    for (int y = 0; y < h; ++y) {
-        const unsigned char *src = plane + (size_t)y * stride;
-        unsigned char *dst = pix + (size_t)y * w * 4;
-        for (int x = 0; x < w; ++x) {
-            dst[x*4+0] = src[x*4+2];  // B
-            dst[x*4+1] = src[x*4+1];  // G
-            dst[x*4+2] = src[x*4+0];  // R
-            dst[x*4+3] = src[x*4+3];  // A
+    if (bits > 8) {
+        // 16bit LE RRGGBBAA → half（scRGB 线性假设；HDR transfer 后续补）
+        unsigned short *dh = (unsigned short*)pix;
+        for (int y = 0; y < h; ++y) {
+            const unsigned short *src = (const unsigned short*)(plane + (size_t)y * stride);
+            unsigned short *dst = dh + (size_t)y * w * 4;
+            for (int x = 0; x < w; ++x) {
+                dst[x*4+0] = f2h(src[x*4+0] / 65535.0f);  // R
+                dst[x*4+1] = f2h(src[x*4+1] / 65535.0f);  // G
+                dst[x*4+2] = f2h(src[x*4+2] / 65535.0f);  // B
+                dst[x*4+3] = f2h(src[x*4+3] / 65535.0f);  // A
+            }
+        }
+    } else {
+        // RGBA → BGRA8 紧凑
+        for (int y = 0; y < h; ++y) {
+            const unsigned char *src = plane + (size_t)y * stride;
+            unsigned char *dst = pix + (size_t)y * w * 4;
+            for (int x = 0; x < w; ++x) {
+                dst[x*4+0] = src[x*4+2];  // B
+                dst[x*4+1] = src[x*4+1];  // G
+                dst[x*4+2] = src[x*4+0];  // R
+                dst[x*4+3] = src[x*4+3];  // A
+            }
         }
     }
     pfImgRelease(img);
@@ -143,8 +174,8 @@ static bool heic_decode(const wchar_t *path, int frame, int targetW, int targetH
     pfFree(ctx);
 
     out->width = w; out->height = h;
-    out->stride = w * 4;
-    out->format = QLPF_BGRA8;
+    out->stride = w * (bits > 8 ? 8 : 4);
+    out->format = (bits > 8) ? QLPF_RGBA16F : QLPF_BGRA8;
     out->pixels = pix;
     out->freeFn = [](void *p) { delete[] (unsigned char*)p; };
     return true;

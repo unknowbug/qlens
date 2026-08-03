@@ -678,8 +678,8 @@ static void DrawButtons(unsigned char *frame, int winW, int winH, bool is16f = f
 static void DrawDebugInfo(unsigned char *frame, int winW, int winH, bool is16f)
 {
     wchar_t buf[256];
-    const wchar_t *fmt = (g_pixFmt == 1) ? L"16F (HDR scRGB)" : L"8bit (SDR)";
-    wsprintfW(buf, L"FMT: %s\nIMG: %dx%d  WIN: %dx%d  ZOOM: %.2f", fmt, g_imgW, g_imgH, winW, winH, g_zoom);
+    const wchar_t *fmt = (g_pixFmt == 1) ? L"16F" : L"8bit";
+    wsprintfW(buf, L"FMT:%s %dx%d @%.2f", fmt, g_imgW, g_imgH, g_zoom);
 
     HDC screenDC = GetDC(nullptr);
     HDC memDC = CreateCompatibleDC(screenDC);
