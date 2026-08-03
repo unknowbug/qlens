@@ -15,8 +15,7 @@ void ThumbStrip::clear()
 // 解码图片 → 生成缩略图 HBITMAP
 bool ThumbStrip::loadImage(const std::wstring &path, int idx)
 {
-    std::lock_guard<std::mutex> lock(mtx);
-    // 缩略解码：WIC 直接解到 THUMB_IMG 尺寸（快，不解全图）
+    // 解码在锁外（WIC 慢，避免阻塞 UI 渲染的 renderToBuffer）
     DecodedImage img;
     if (!DecodeImageThumb(path, img, THUMB_IMG_W, THUMB_IMG_H)) {
         // 回退全尺寸解码
@@ -46,6 +45,8 @@ bool ThumbStrip::loadImage(const std::wstring &path, int idx)
             d[0]=s[2]; d[1]=s[1]; d[2]=s[0]; d[3]=255;  // RGB->BGRA
         }
 
+    // 短锁：只写 items
+    std::lock_guard<std::mutex> lock(mtx);
     if (idx < (int)items.size()) {
         items[idx].bmp = nullptr;
         items[idx].w = w; items[idx].h = h;
@@ -83,7 +84,8 @@ void ThumbStrip::draw(HDC dc, int winW, int winH)
 int ThumbStrip::hitTest(int x, int y, int winH)
 {
     if (y < winH - THUMB_H || y > winH) return -1;
-    int i = (x + scrollX) / THUMB_W;
+    // 与 draw 一致：位置 = pad + i*THUMB_W - scrollX → i = (x + scrollX - pad) / THUMB_W
+    int i = (x + scrollX - pad) / THUMB_W;
     if (i >= 0 && i < (int)items.size()) return i;
     return -1;
 }

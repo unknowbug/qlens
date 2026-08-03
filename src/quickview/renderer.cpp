@@ -272,6 +272,7 @@ void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isH
     g_imgW = w; g_imgH = h;
     g_exifRot = exifRot;
     g_isHdrImage = isHdr;
+    g_rotation = 0;  // 新图重置手动旋转（Q/E 只对当前图）
     // 默认：图小于窗口→100%不放大，图大于窗口→适配缩小
     g_zoom = (g_imgW <= g_w && g_imgH <= g_h) ? 1.0f : 0.0f;
 }

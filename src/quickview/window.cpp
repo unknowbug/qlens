@@ -46,7 +46,7 @@ static std::wstring g_curFile;
 static HWND g_hwnd = nullptr;
 static std::vector<std::wstring> g_files;
 static int g_curIdx = -1;
-static const wchar_t *IMG_EXTS[] = { L".jpg",L".jpeg",L".png",L".webp",L".bmp",L".gif",L".tif",L".tiff" };
+static const wchar_t *IMG_EXTS[] = { L".jpg",L".jpeg",L".png",L".webp",L".bmp",L".gif",L".tif",L".tiff",L".svg" };
 // 异步解码：最新请求 ID（取消令牌）
 static std::atomic<int> g_pendingReqId{0};
 static const UINT WM_ASYNC_DECODED = WM_APP + 1;
@@ -66,6 +66,8 @@ static void RequestLoadAsync(const std::wstring &path)
     int reqId = RendererNextRequestId();
     g_pendingReqId.store(reqId);
     std::thread([path, reqId]() {
+        // 后台线程必须初始化 COM（WIC 的 CoCreateInstance 依赖）
+        HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         unsigned char *pix = nullptr;
         int w = 0, h = 0, rot = 0;
         bool isHdr = false;
@@ -80,6 +82,7 @@ static void RequestLoadAsync(const std::wstring &path)
             ok ? (LPARAM)new DecodedResult{ pix, w, h, rot, isHdr, 0 }
                : (LPARAM)new DecodedResult{ nullptr, 0, 0, false, false, err ? err : QLERR_CORRUPT });
         else if (pix) delete[] pix;
+        if (SUCCEEDED(co)) CoUninitialize();
     }).detach();
 }
 static void LoadDirFiles(const std::wstring &path)
@@ -279,16 +282,7 @@ static void NavTo(int idx, HWND hwnd)
     g_curIdx = idx;
     g_curFile = g_files[idx];
     RequestLoadAsync(g_curFile);
-    // 批量补生成可视范围缩略图（按可视数量）
-    if (idx < (int)g_strip.items.size()) {
-        RECT rc; if (hwnd) GetClientRect(hwnd, &rc);
-        int vis = (hwnd ? rc.right : 1200) / THUMB_W + 4;
-        int lo = idx - vis, hi = idx + vis;
-        if (lo < 0) lo = 0;
-        if (hi > (int)g_files.size()) hi = (int)g_files.size();
-        for (int i = lo; i < hi; ++i)
-            if (g_strip.items[i].px.empty()) g_strip.loadImage(g_files[i], i);
-    }
+    // 缩略图异步生成：仅更新高亮 + 滚动（不同步解码，避免卡 UI）
     g_strip.curIdx = idx;
     RECT rc; if (hwnd) GetClientRect(hwnd, &rc);
     g_strip.scrollTo(idx, hwnd ? rc.right : 1200);
