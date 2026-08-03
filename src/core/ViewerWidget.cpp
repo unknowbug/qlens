@@ -4,6 +4,7 @@
 #include "ViewerWidget.h"
 #include "decode_api.h"
 #include "i18n.h"
+#include <cstdio>
 #include <QHBoxLayout>
 #include <QImageReader>
 #include <QThread>
@@ -208,6 +209,16 @@ void ViewerWidget::updateZoom()
     // 否则 fitInView 用 0/极小尺寸算出错误缩放（首次打开缩小的根因）
     int vw = m_view->viewport()->width();
     int vh = m_view->viewport()->height();
+    // 临时调试日志（缩放出 bug 排查——定位后删除）
+    {
+        FILE *f = fopen("E:/PYTHON/qlens/build-qv/viewer_log.txt", "a");
+        if (f) {
+            fprintf(f, "zoom vw=%d vh=%d orig=%dx%d pix=%dx%d zf=%.2f\n",
+                vw, vh, m_origSize.width(), m_origSize.height(),
+                m_original.width(), m_original.height(), m_zoomFactor);
+            fclose(f);
+        }
+    }
     if (vw < 50 || vh < 50) {
         QTimer::singleShot(50, this, [this]() { updateZoom(); });
         return;

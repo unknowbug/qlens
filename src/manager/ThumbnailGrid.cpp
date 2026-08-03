@@ -39,6 +39,7 @@ static bool copyDirRecursive(const QString &srcDir, const QString &dstDir);
 #include <QBuffer>
 #include <QTimer>
 #include <QStyledItemDelegate>
+#include <QLineEdit>
 #include <QMouseEvent>
 #include <QSet>
 
@@ -92,11 +93,44 @@ void ThumbModel::updateHighlight(int row, bool hit) {
 
 class ThumbDelegate : public QStyledItemDelegate {
 public:
-    explicit ThumbDelegate(ThumbModel *model, int *thumbSize, QObject *parent = nullptr)
-        : QStyledItemDelegate(parent), m_model(model), m_thumbSize(thumbSize) {}
+    explicit ThumbDelegate(ThumbModel *model, int *thumbSize, ThumbnailGrid *grid,
+                           QObject *parent = nullptr)
+        : QStyledItemDelegate(parent), m_model(model), m_thumbSize(thumbSize), m_grid(grid) {}
 
     QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override {
         return QSize(*m_thumbSize + 4, *m_thumbSize + 26);
+    }
+
+    // ── 内联编辑（资源管理器风格：文件名位置直接编辑）──
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &, const QModelIndex &) const override {
+        auto *ed = new QLineEdit(parent);
+        ed->setFrame(false);
+        ed->setStyleSheet("background:#2a2a2a; color:#fff; border:1px solid #3a5a9a;");
+        return ed;
+    }
+    void setEditorData(QWidget *editor, const QModelIndex &idx) const override {
+        auto *ed = qobject_cast<QLineEdit *>(editor);
+        if (ed) { ed->setText(idx.data(ThumbModel::NameRole).toString()); ed->selectAll(); }
+    }
+    void setModelData(QWidget *editor, QAbstractItemModel *, const QModelIndex &idx) const override {
+        auto *ed = qobject_cast<QLineEdit *>(editor);
+        if (!ed || !m_grid) return;
+        QString newName = ed->text().trimmed();
+        if (newName.isEmpty()) return;
+        QString oldPath = idx.data(ThumbModel::PathRole).toString();
+        QFileInfo fi(oldPath);
+        if (!newName.contains('.')) newName += "." + fi.suffix();  // 补扩展名
+        if (newName == fi.fileName()) return;
+        QString dst = QDir(m_grid->currentFolder()).filePath(newName);
+        if (QFileInfo(dst).exists()) return;
+        if (QFile::rename(oldPath, dst))
+            m_grid->loadFolder(m_grid->currentFolder());
+    }
+    void updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &opt, const QModelIndex &) const override {
+        // 编辑器定位在文件名区域（同 paint 的 textRect）
+        QRect cell = opt.rect;
+        QRect textRect = cell.adjusted(4, *m_thumbSize + 6, -4, -2);
+        editor->setGeometry(textRect);
     }
 
     void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override {
@@ -162,6 +196,7 @@ public:
 private:
     ThumbModel *m_model;
     int *m_thumbSize;
+    ThumbnailGrid *m_grid;
 };
 
 // ── 解码任务（线程池）──
@@ -406,6 +441,7 @@ ThumbnailGrid::ThumbnailGrid(TagStore *store, QWidget *parent)
     setGridSize(QSize(thumbCellSize(), thumbCellSize()));
     setItemDelegate(new ThumbDelegate(m_model, &m_thumbSize, this));
     setStyleSheet("QListView{background:#111; border:none; color:#aaa;}");
+    setEditTriggers(QAbstractItemView::EditKeyPressed);  // F2 触发内联编辑
 
     // 拖放：从网格拖出到资源管理器 = 复制文件；拖图片进网格 = 复制到当前文件夹
     setDragEnabled(true);
@@ -598,27 +634,21 @@ QStringList ThumbnailGrid::selectedImagePaths() const
     return paths;
 }
 
-// 重命名：单选=单文件重命名（对话框）；多选=批量重命名（选中项）
+// 重命名：单选=内联编辑（资源管理器风格）；多选=批量重命名（选中项）
 void ThumbnailGrid::renameSelected()
 {
     QStringList sel = selectedImagePaths();
     if (sel.isEmpty()) return;
     if (sel.size() == 1) {
-        QFileInfo fi(sel.first());
-        bool ok = false;
-        QString newName = QInputDialog::getText(this, T(L"重命名"), T(L"新文件名："),
-            QLineEdit::Normal, fi.fileName(), &ok);
-        if (!ok) return;
-        newName = newName.trimmed();
-        if (newName.isEmpty()) return;
-        if (!newName.contains('.')) newName += "." + fi.suffix();  // 补扩展名
-        QString dst = QDir(m_currentFolder).filePath(newName);
-        if (QFileInfo(dst).exists()) {
-            QMessageBox::warning(this, T(L"重命名"), T(L"文件已存在"));
-            return;
+        // 内联编辑：直接在文件名位置编辑（delegate createEditor/setModelData 处理改文件）
+        QModelIndexList idxs = selectionModel()->selectedIndexes();
+        for (const QModelIndex &ix : idxs) {
+            if (ix.isValid() && !m_model->itemAt(ix.row()).isDir) {
+                setCurrentIndex(ix);
+                edit(ix);
+                break;
+            }
         }
-        if (QFile::rename(sel.first(), dst))
-            loadFolder(m_currentFolder);
     } else {
         batchRename();  // 多选 → 批量重命名（选中项）
     }
