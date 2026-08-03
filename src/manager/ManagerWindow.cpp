@@ -12,6 +12,7 @@
 #include <QUrl>
 #include <QFile>
 #include <QTimer>
+#include <QScreen>
 #include <QApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -47,7 +48,16 @@ static QString picturesFolder()
 
 ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle(QString::fromWCharArray(I18n::Get(L"QLens 管理器")));
-    resize(1400, 900);
+    // 默认尺寸：屏幕可用区 80%（分发兼容小屏/高 DPI），最大化为常态
+    {
+        QScreen *scr = screen();
+        if (scr) {
+            QSize avail = scr->availableGeometry().size();
+            resize(avail.width() * 4 / 5, avail.height() * 4 / 5);
+        } else {
+            resize(1280, 800);
+        }
+    }
     setDockNestingEnabled(true);
 
     // 数据层（文件夹绑定在 loadFolder 时切换）
@@ -225,11 +235,11 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     QAction *zhAct = langMenu->addAction(tr("中文"));
     QAction *enAct = langMenu->addAction(tr("English"));
     zhAct->setCheckable(true); enAct->setCheckable(true);
-    // 当前语言勾选标识（读 qlens_config.ini）
+    // 当前语言勾选标识（读 qlens_config.ini——分发兼容路径）
     {
-        QString iniPath = QCoreApplication::applicationDirPath() + "/qlens_config.ini";
+        std::wstring iniPath = I18n::ConfigIniPath(false);
         wchar_t lang[16] = {};
-        GetPrivateProfileStringW(L"General", L"language", L"", lang, 16, (LPCWSTR)iniPath.utf16());
+        GetPrivateProfileStringW(L"General", L"language", L"", lang, 16, iniPath.c_str());
         bool en = (_wcsicmp(lang, L"en") == 0 || _wcsicmp(lang, L"English") == 0);
         zhAct->setChecked(!en);
         enAct->setChecked(en);
@@ -477,9 +487,9 @@ bool ManagerWindow::eventFilter(QObject *obj, QEvent *event) {
 // 切换界面语言（写 qlens_config.ini；重启生效——i18n 启动时加载）
 void ManagerWindow::setLanguage(const QString &lang)
 {
-    QString iniPath = QCoreApplication::applicationDirPath() + "/qlens_config.ini";
+    std::wstring iniPath = I18n::ConfigIniPath(true);  // 分发兼容：exe 旁可写 → AppData
     WritePrivateProfileStringW(L"General", L"language",
-        (LPCWSTR)lang.utf16(), (LPCWSTR)iniPath.utf16());
+        (LPCWSTR)lang.utf16(), iniPath.c_str());
     QMessageBox::information(this, T(L"设置"), T(L"语言已更改，重启后生效。"));
 }
 

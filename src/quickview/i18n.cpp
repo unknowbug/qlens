@@ -97,6 +97,38 @@ const wchar_t *Get(const wchar_t *zh)
 
 void Clear() { g_map.clear(); }
 
+// 配置文件路径（分发兼容：exe 旁只读时落到 AppData）
+std::wstring ConfigIniPath(bool forWrite)
+{
+    wchar_t exeDir[MAX_PATH];
+    GetModuleFileNameW(nullptr, exeDir, MAX_PATH);
+    wchar_t *sl = wcsrchr(exeDir, L'\\');
+    if (sl) *sl = 0;
+    std::wstring exeIni = std::wstring(exeDir) + L"\\qlens_config.ini";
+
+    if (forWrite) {
+        // 写：exe 旁可写 → 便携（绿色）；否则 %APPDATA%/QLens/
+        HANDLE h = CreateFileW(exeIni.c_str(), GENERIC_WRITE, 0, nullptr,
+                               OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h != INVALID_HANDLE_VALUE) { CloseHandle(h); return exeIni; }
+        wchar_t app[MAX_PATH];
+        if (GetEnvironmentVariableW(L"APPDATA", app, MAX_PATH) && app[0]) {
+            std::wstring dir = std::wstring(app) + L"\\QLens";
+            CreateDirectoryW(dir.c_str(), nullptr);
+            return dir + L"\\qlens_config.ini";
+        }
+        return exeIni;
+    }
+    // 读：exe 旁 → %APPDATA%/QLens/
+    if (GetFileAttributesW(exeIni.c_str()) != INVALID_FILE_ATTRIBUTES) return exeIni;
+    wchar_t app[MAX_PATH];
+    if (GetEnvironmentVariableW(L"APPDATA", app, MAX_PATH) && app[0]) {
+        std::wstring dir = std::wstring(app) + L"\\QLens";
+        return dir + L"\\qlens_config.ini";
+    }
+    return exeIni;
+}
+
 // 从配置/系统语言加载对应 .po（language/<code>/<app>.po）
 // 优先级：qlens_config.ini 的 language（Manager Settings 写）→ 系统 UI 语言
 // 代码：zh=中文(默认) en=English；系统语言无匹配 → 中文
@@ -111,9 +143,8 @@ bool LoadForApp(const wchar_t *appName)
     // 1) 配置优先（Manager Settings 写）
     wchar_t lang[64] = {};
     {
-        wchar_t iniPath[MAX_PATH];
-        swprintf_s(iniPath, MAX_PATH, L"%s\\qlens_config.ini", exeDir);
-        GetPrivateProfileStringW(L"General", L"language", L"", lang, 64, iniPath);
+        std::wstring iniPath = ConfigIniPath(false);
+        GetPrivateProfileStringW(L"General", L"language", L"", lang, 64, iniPath.c_str());
     }
     // 2) 无配置 → 系统 UI 语言
     if (!lang[0]) {

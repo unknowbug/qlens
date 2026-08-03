@@ -15,7 +15,19 @@ void RegisterFileAssociations();
 
 static LONG WINAPI CrashFilter(EXCEPTION_POINTERS *ep)
 {
-    FILE *f = fopen("E:/PYTHON/qlens/build-qv/crash.log", "a");
+    // 崩溃日志写到 %APPDATA%/QLens/（exe 目录可能只读——分发兼容）
+    wchar_t logPath[MAX_PATH];
+    if (GetEnvironmentVariableW(L"APPDATA", logPath, MAX_PATH) && logPath[0]) {
+        wcscat_s(logPath, MAX_PATH, L"\\QLens");
+        CreateDirectoryW(logPath, nullptr);
+        wcscat_s(logPath, MAX_PATH, L"\\crash.log");
+    } else {
+        GetModuleFileNameW(nullptr, logPath, MAX_PATH);
+        wchar_t *sl = wcsrchr(logPath, L'\\');
+        if (sl) wcscpy_s(sl + 1, MAX_PATH - (sl - logPath), L"crash.log");
+    }
+    FILE *f = nullptr;
+    _wfopen_s(&f, logPath, L"a");
     if (f) {
         fprintf(f, "CRASH code=0x%08lX at=%p\n",
             (unsigned long)ep->ExceptionRecord->ExceptionCode,
@@ -27,6 +39,13 @@ static LONG WINAPI CrashFilter(EXCEPTION_POINTERS *ep)
 
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
 {
+    // 高 DPI 感知（Win10 1703+ Per-Monitor V2）——分发到高分屏不模糊/不错位
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32) {
+        typedef BOOL(WINAPI *SetDpiCtxFn)(DPI_AWARENESS_CONTEXT);
+        auto fn = (SetDpiCtxFn)GetProcAddress(user32, "SetProcessDpiAwarenessContext");
+        if (fn) fn(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
     SetUnhandledExceptionFilter(CrashFilter);
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     WNDCLASSW wc = {};

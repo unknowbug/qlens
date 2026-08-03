@@ -15,4 +15,8 @@ bool LoadForApp(const wchar_t *appName);
 const wchar_t *Get(const wchar_t *zh);
 // 卸载/清空（释放）
 void Clear();
+// 配置文件路径（分发兼容）：
+//   forWrite=false 读：exe 旁 qlens_config.ini → %APPDATA%/QLens/
+//   forWrite=true  写：exe 旁可写（便携/绿色）→ 否则 %APPDATA%/QLens/
+std::wstring ConfigIniPath(bool forWrite);
 }
