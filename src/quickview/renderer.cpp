@@ -674,12 +674,29 @@ static void DrawButtons(unsigned char *frame, int winW, int winH, bool is16f = f
     RenderButtonGDI(frame, winW, winH, g_btnNextX, g_btnNextY, 44, 36, L"\u25B6", g_hoverBtn == 2, 14, 14, is16f);
 }
 
-// 绘制 DEBUG 信息（左上角，F12 切换）——显示当前格式状态
+// 绘制 DEBUG 信息（左上角，F12 切换）——多行完整显示
 static void DrawDebugInfo(unsigned char *frame, int winW, int winH, bool is16f)
 {
-    wchar_t buf[256];
+    wchar_t buf[512];
     const wchar_t *fmt = (g_pixFmt == 1) ? L"16F" : L"8bit";
-    wsprintfW(buf, L"FMT:%s %dx%d @%.2f", fmt, g_imgW, g_imgH, g_zoom);
+    int rotAll = (g_rotation + (g_exifRot == 6 ? 1 : g_exifRot == 8 ? 3 : g_exifRot == 3 ? 2 : 0)) % 4;
+    wsprintfW(buf, L"FMT: %s\nIMG: %dx%d\nWIN: %dx%d\nZOOM: %.2f\nROT: %d (exif %d)\nPAN: %d,%d\nPEAK: %.0f nit (HDR:%d)",
+        fmt, g_imgW, g_imgH, winW, winH, g_zoom, rotAll, g_exifRot, g_panX, g_panY,
+        HdrDisplayPeakBrightness(), g_hdrMode ? 1 : 0);
+
+    // 按 \n 拆行（手动逐行 DrawText，可靠多行）
+    const wchar_t *lines[8];
+    int lineCount = 0;
+    {
+        wchar_t *p = buf;
+        while (*p && lineCount < 8) {
+            lines[lineCount++] = p;
+            wchar_t *nl = wcschr(p, L'\n');
+            if (!nl) break;
+            *nl = 0;
+            p = nl + 1;
+        }
+    }
 
     HDC screenDC = GetDC(nullptr);
     HDC memDC = CreateCompatibleDC(screenDC);
@@ -687,9 +704,7 @@ static void DrawDebugInfo(unsigned char *frame, int winW, int winH, bool is16f)
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Consolas");
     HGDIOBJ oldF = SelectObject(memDC, font);
-    SIZE sz;
-    GetTextExtentPoint32W(memDC, buf, (int)wcslen(buf), &sz);
-    int bw = sz.cx + 24, bh = sz.cy + 16;
+    int lineH = 20, bw = 320, bh = lineH * lineCount + 12;
     int bx = 12, by = 12;  // 左上角
 
     BITMAPINFO bi = {};
@@ -710,8 +725,10 @@ static void DrawDebugInfo(unsigned char *frame, int winW, int winH, bool is16f)
     DeleteObject(bg);
     SetBkMode(memDC, TRANSPARENT);
     SetTextColor(memDC, RGB(0, 255, 0));
-    RECT tr = { 12, 8, bw - 4, bh };
-    DrawTextW(memDC, buf, -1, &tr, DT_LEFT | DT_TOP | DT_NOPREFIX);
+    for (int i = 0; i < lineCount; ++i) {
+        RECT tr = { 12, 6 + i * lineH, bw - 4, bh };
+        DrawTextW(memDC, lines[i], -1, &tr, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
+    }
 
     // 合进 frame（不透明，清晰可读）
     for (int yy = 0; yy < bh; ++yy)
