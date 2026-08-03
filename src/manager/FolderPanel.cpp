@@ -22,7 +22,9 @@ FolderPanel::FolderPanel(QWidget *parent) : QWidget(parent) {
 
     setMinimumWidth(180);
 
-    // 初始定位到 Pictures（存在时）
+    // 初始定位到 Pictures（存在时）——m_syncing 阻止构造期间触发 loadFolder
+    // （ManagerWindow 会在窗口显示后延迟加载，UI 先出再载入缩略图/数据库）
+    m_syncing = true;
     QString pics = QDir::homePath() + "/Pictures";
     if (QDir(pics).exists()) {
         QModelIndex idx = m_fsModel->index(pics);
@@ -31,6 +33,7 @@ FolderPanel::FolderPanel(QWidget *parent) : QWidget(parent) {
             m_folderTree->scrollTo(idx);
         }
     }
+    m_syncing = false;
 
     connect(m_folderTree->selectionModel(), &QItemSelectionModel::currentChanged,
             [this](const QModelIndex &idx) {

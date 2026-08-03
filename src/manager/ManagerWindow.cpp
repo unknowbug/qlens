@@ -11,6 +11,7 @@
 #include <QDesktopServices>
 #include <QUrl>
 #include <QFile>
+#include <QTimer>
 #include <QApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -275,6 +276,12 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
                 "<p>轻量图片查看器 + 管理器，围绕一套开放的图片标签协议（qltag.db）构建。</p>"
                 "<p>协议文档：docs/QLENS_TAG_PROTOCOL.md</p>"
                 "<p>© 2026 NDark (unknowbug)</p>"));
+    });
+
+    // ── 初始加载延迟到窗口显示后（UI 先出，缩略图/数据库后台载入）──
+    QTimer::singleShot(0, [this]() {
+        QString pics = QDir::homePath() + "/Pictures";
+        openFolder(QDir(pics).exists() ? pics : QDir::homePath());
     });
 
     // ── 信号路由 ──

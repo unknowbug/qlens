@@ -3,6 +3,7 @@
 #endif
 #include "ThumbnailGrid.h"
 #include "i18n.h"
+#include "FileIcons.h"
 #include <QDir>
 #include <QImageReader>
 #include "decode_api.h"
@@ -687,8 +688,12 @@ void ThumbnailGrid::applyScanResult(const ScanResult &res, int token) {
     m_allItems.reserve(m_subDirs.size() + m_imageFiles.size());
     for (const QString &d : m_subDirs)
         m_allItems.push_back({d, m_currentFolder + "/" + d, true, folderIcon.pixmap(m_thumbSize, m_thumbSize), false, false});
-    for (const QString &f : m_imageFiles)
-        m_allItems.push_back({f, m_currentFolder + "/" + f, false, fileIcon.pixmap(m_thumbSize, m_thumbSize), false, false});
+    for (const QString &f : m_imageFiles) {
+        // 缩略图生成前：用 icons/ 的格式图标（JPG.ico/PNG.ico...），无匹配回退系统图标
+        QIcon ic = FileIcons::iconForExt(QFileInfo(f).suffix());
+        if (ic.isNull()) ic = fileIcon;
+        m_allItems.push_back({f, m_currentFolder + "/" + f, false, ic.pixmap(m_thumbSize, m_thumbSize), false, false});
+    }
 
     applyFilter();
 
