@@ -31,6 +31,15 @@ static int g_rotation = 0;  // 0/1/2/3 = 0/90/180/270 度
 static int g_exifRot = 0;   // EXIF Orientation（自动旋转，渲染时叠加）
 static bool g_isHdrImage = false;  // 源图是高位深（真 HDR 图）
 static float g_highRatio = 0.0f;   // 高光像素比例（>0.8 亮度占比，亮图降高光）
+// 主图平移（放大后拖动查看）
+static int g_panX = 0, g_panY = 0;
+static float g_lastFit = 1.0f;  // 最近一次渲染的 fit 比例（滚轮从适配缩放时用）
+// 缩放缓冲缓存（拖动时避免重算缩放，只重合成）
+static std::vector<unsigned char> g_scaledCache;
+static int g_scaledW = 0, g_scaledH = 0;
+static const unsigned char *g_scaledSrc = nullptr;  // 缓存对应的 g_origPixels
+static int g_scaledRot = -1;                        // 缓存对应的旋转
+static float g_scaledZoom = -1.0f;                  // 缓存对应的缩放
 
 bool g_d3dReady = false;
 static bool g_hdrMode = false;  // 当前是否 HDR 输出
@@ -297,8 +306,21 @@ void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isH
     g_isHdrImage = isHdr;
     g_highRatio = highRatio;
     g_rotation = 0;  // 新图重置手动旋转（Q/E 只对当前图）
+    g_panX = 0; g_panY = 0;  // 新图重置平移
+    g_scaledCache.clear();   // 新图：清缩放缓存（key 已失效）
     // 默认：图小于窗口→100%不放大，图大于窗口→适配缩小
     g_zoom = (g_imgW <= g_w && g_imgH <= g_h) ? 1.0f : 0.0f;
+}
+
+// ── 主图平移（放大后拖动查看）──
+void RendererPan(int dx, int dy)
+{
+    g_panX += dx;
+    g_panY += dy;
+}
+void RendererResetPan()
+{
+    g_panX = 0; g_panY = 0;
 }
 
 // 取消令牌：每次请求递增
@@ -314,11 +336,15 @@ void RendererEnsureInit(HWND hwnd)
 
 void RendererSetZoom(float dz)
 {
-    if (dz == 0.0f) { g_zoom = 0.0f; return; }        // S=全窗口
-    else if (dz == 1.0f) { g_zoom = 1.0f; return; }   // F=100%
-    g_zoom = (g_zoom == 0.0f) ? 1.0f : g_zoom * dz;
-    if (g_zoom > 8.0f) g_zoom = 8.0f;
-    if (g_zoom < 0.25f) g_zoom = 0.25f;
+    // 从"窗口适配"开始缩放时重置平移（图回居中）；已有缩放保持 pan
+    if (g_zoom == 0.0f) { g_panX = 0; g_panY = 0; }
+    g_scaledCache.clear();  // 缩放变化：清缓存（下次渲染同步重算）
+    if (dz == 0.0f) { g_zoom = 0.0f; return; }        // S=全窗口适配
+    else if (dz == 1.0f) { g_zoom = 1.0f; return; }   // F=100% 原尺寸
+    // 滚轮：基于当前显示比例平滑缩放。g_zoom=0(适配) 时用 g_lastFit 换算
+    float cur = (g_zoom == 0.0f) ? g_lastFit : g_zoom;
+    g_zoom = cur * dz;
+    if (g_zoom < 0.05f) g_zoom = 0.05f;
 }
 
 float RendererZoomFactor() { return g_zoom; }
@@ -575,50 +601,56 @@ void RendererRender()
         int dispH = swap ? g_imgW : g_imgH;
         float aw = (float)g_w / dispW, ah = (float)viewH / dispH;
         float fit = (aw < ah) ? aw : ah;
-        float s = (g_zoom == 0.0f) ? fit : (g_zoom == 1.0f ? 1.0f : fit * g_zoom);
+        g_lastFit = fit;  // 存 fit 供滚轮从适配缩放时换算
+        // g_zoom: 0=fit(适配), 其他=相对原图比例（0.5=50%, 1=100%, 2=200%）
+        float s = (g_zoom == 0.0f) ? fit : g_zoom;
         int sw = (int)(dispW * s), sh = (int)(dispH * s);
         if (sw < 1) sw = 1; if (sh < 1) sh = 1;
 
-        // CPU 双线性缩放（消除毛边），采样时应用旋转
-        std::vector<unsigned char> scaled((size_t)sw * sh * 4);
-        for (int y = 0; y < sh; ++y) {
-            for (int x = 0; x < sw; ++x) {
-                // 目标 (x,y) → 原图采样坐标（旋转映射）
-                float u, v;
+        // 方案 C：按需渲染可视区——直接对窗口像素采样原图（无 scaled 缓存）
+        // 循环次数 = 窗口像素（恒定），与图尺寸/缩放倍率无关
+        frame.assign((size_t)g_w * g_h * 4, 0);
+        // 显示比例：sw/sh = 图显示尺寸（可能远超窗口，但只渲染可视区）
+        float dispS = s;
+        int dispWpx = (int)(dispW * dispS), dispHpx = (int)(dispH * dispS);
+        if (dispWpx < 1) dispWpx = 1; if (dispHpx < 1) dispHpx = 1;
+        // 图左上角在窗口坐标（居中 + pan）
+        int imgX = (g_w - dispWpx) / 2 + g_panX;
+        int imgY = (viewH - dispHpx) / 2 + g_panY;
+        // 对窗口每个可见像素，映射回原图坐标做双线性采样
+        for (int wy = 0; wy < viewH; ++wy) {
+            // 目标窗口像素 (wx, wy) → 图内坐标（显示坐标）
+            int iy = wy - imgY;              // 图内 y（显示坐标）
+            if (iy < 0 || iy >= dispHpx) continue;
+            unsigned char *rowDst = &frame[((size_t)wy * g_w) * 4];
+            for (int wx = 0; wx < g_w; ++wx) {
+                int ix = wx - imgX;          // 图内 x（显示坐标）
+                if (ix < 0 || ix >= dispWpx) continue;
+                // 图内显示坐标 → 原图坐标（含旋转映射）
+                float u = (float)ix / dispWpx, v = (float)iy / dispHpx;
+                float sx, sy;
                 switch (rotAll) {
-                    case 1:  // 右旋90
-                        u = (float)y / sh; v = 1.0f - (float)x / sw; break;
-                    case 3:  // 左旋90
-                        u = 1.0f - (float)y / sh; v = (float)x / sw; break;
-                    case 2:  // 180
-                        u = 1.0f - (float)x / sw; v = 1.0f - (float)y / sh; break;
-                    default:
-                        u = (float)x / sw; v = (float)y / sh; break;
+                    case 1: sx = (1.0f - v) * g_imgW; sy = u * g_imgH; break;
+                    case 3: sx = v * g_imgW; sy = (1.0f - u) * g_imgH; break;
+                    case 2: sx = (1.0f - u) * g_imgW; sy = (1.0f - v) * g_imgH; break;
+                    default: sx = u * g_imgW; sy = v * g_imgH; break;
                 }
-                float sx = u * g_imgW, sy = v * g_imgH;
                 int x0 = (int)sx; if (x0 >= g_imgW) x0 = g_imgW - 1;
                 int x1 = x0 + 1; if (x1 >= g_imgW) x1 = g_imgW - 1;
                 int y0 = (int)sy; if (y0 >= g_imgH) y0 = g_imgH - 1;
                 int y1 = y0 + 1; if (y1 >= g_imgH) y1 = g_imgH - 1;
-                float wx = sx - x0, wy = sy - y0;
+                float wxw = sx - x0, wyw = sy - y0;
                 const unsigned char *r0 = g_origPixels + (size_t)y0 * g_imgW * 4;
                 const unsigned char *r1 = g_origPixels + (size_t)y1 * g_imgW * 4;
-                unsigned char *d = &scaled[((size_t)y * sw + x) * 4];
+                unsigned char *d = &rowDst[(size_t)wx * 4];
                 for (int ch = 0; ch < 3; ++ch) {
-                    float top = r0[x0*4+ch]*(1-wx) + r0[x1*4+ch]*wx;
-                    float bot = r1[x0*4+ch]*(1-wx) + r1[x1*4+ch]*wx;
-                    d[ch] = (unsigned char)(top*(1-wy) + bot*wy);
+                    float top = r0[x0*4+ch]*(1-wxw) + r0[x1*4+ch]*wxw;
+                    float bot = r1[x0*4+ch]*(1-wxw) + r1[x1*4+ch]*wxw;
+                    d[ch] = (unsigned char)(top*(1-wyw) + bot*wyw);
                 }
                 d[3] = 255;
             }
         }
-
-        // 合成全窗口 buffer：主图上部 + 缩略图条底部
-        frame.assign((size_t)g_w * g_h * 4, 0);
-        int dx = (g_w - sw) / 2, dy = (viewH - sh) / 2;
-        if (dx < 0) dx = 0; if (dy < 0) dy = 0;
-        for (int y = 0; y < sh && y + dy < viewH; ++y)
-            memcpy(&frame[((size_t)(y+dy) * g_w + dx) * 4], &scaled[(size_t)y * sw * 4], (size_t)sw * 4);
         g_strip.renderToBuffer(frame.data(), g_w, g_h);
         DrawButtons(frame.data(), g_w, g_h);
 

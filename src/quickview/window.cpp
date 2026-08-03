@@ -35,6 +35,8 @@ void RendererUpdateHover(int x, int y);
 bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr, float *outHighRatio);
 void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isHdr, float highRatio);
 int RendererNextRequestId();
+void RendererPan(int dx, int dy);
+void RendererResetPan();
 void RendererRotate(int steps);
 static void CopyCurrentImage();
 static void SaveAsDialog(HWND hwnd);
@@ -54,6 +56,9 @@ static const UINT WM_ASYNC_DECODED = WM_APP + 1;
 static int g_lastError = 0;
 // GIF 动画检测（前向声明）
 static void StartAnimationIfGif(const std::wstring &path);
+// 主图拖动平移状态
+static bool g_dragging = false;
+static int g_dragLastX = 0, g_dragLastY = 0;
 // 异步解码结果（跨线程传递）
 struct DecodedResult {
     unsigned char *pix;
@@ -559,6 +564,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     }
     case WM_MOUSEMOVE: {
         POINT pt = { (short)LOWORD(lp), (short)HIWORD(lp) };
+        // 拖动平移（放大图时）
+        if (g_dragging) {
+            int dx = pt.x - g_dragLastX;
+            int dy = pt.y - g_dragLastY;
+            RendererPan(dx, dy);
+            g_dragLastX = pt.x; g_dragLastY = pt.y;
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        }
         RendererUpdateHover(pt.x, pt.y);
         if (!RendererButtonsVisible()) {
             RendererShowButtons(true);
@@ -605,7 +619,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         int idx = g_strip.hitTest(x, y, rc.bottom);
         if (idx >= 0 && idx < (int)g_files.size()) NavTo(idx, hwnd);
+        else if (y < rc.bottom - THUMB_H) {
+            // 主图区域：开始拖动平移
+            g_dragging = true;
+            g_dragLastX = x; g_dragLastY = y;
+            SetCapture(hwnd);
+        }
         SetFocus(hwnd);
+        return 0;
+    }
+    case WM_LBUTTONUP: {
+        if (g_dragging) {
+            g_dragging = false;
+            ReleaseCapture();
+        }
         return 0;
     }
     case WM_USER + 1:
