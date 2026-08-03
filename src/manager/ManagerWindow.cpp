@@ -14,11 +14,15 @@
 #include <QTimer>
 #include <QScreen>
 #include <QApplication>
+#include <shlobj.h>
+#include <objbase.h>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
 // 翻译辅助：msgid=中文，默认中文；en.po 覆盖为英文
 static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(id)); }
+// 定位默认图片文件夹（前向声明——定义在下方）
+static QString findDefaultFolder();
 #include <QLabel>
 
 #ifdef Q_OS_WIN
@@ -289,10 +293,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     });
 
     // ── 初始加载延迟到窗口显示后（UI 先出，缩略图/数据库后台载入）──
-    QTimer::singleShot(0, [this]() {
-        QString pics = QDir::homePath() + "/Pictures";
-        openFolder(QDir(pics).exists() ? pics : QDir::homePath());
-    });
+    QTimer::singleShot(0, [this]() { openFolder(findDefaultFolder()); });
 
     // ── 信号路由 ──
     connect(m_folderPanel, &FolderPanel::folderSelected, [this](const QString &path) {
@@ -410,6 +411,26 @@ static QString formatFileSize(qint64 bytes)
     if (bytes < 1024) return QString("%1 B").arg(bytes);
     if (bytes < 1024 * 1024) return QString("%1 KB").arg(bytes / 1024.0, 0, 'f', 1);
     return QString("%1 MB").arg(bytes / (1024.0 * 1024.0), 0, 'f', 2);
+}
+
+// 定位用户图片文件夹（分发/移动兼容）：
+// 1) 系统注册位置（SHGetKnownFolderPath——用户通过"位置"设置移动过 → 正确）
+// 2) 默认 %USERPROFILE%/Pictures
+// 3) OneDrive Pictures（部分系统默认在 OneDrive 下）
+// 4) 兜底用户目录
+static QString findDefaultFolder()
+{
+    PWSTR path = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &path)) && path) {
+        QString p = QString::fromWCharArray(path);
+        CoTaskMemFree(path);
+        if (QDir(p).exists()) return p;
+    }
+    QString homePics = QDir::homePath() + "/Pictures";
+    if (QDir(homePics).exists()) return homePics;
+    QString odPics = QDir::homePath() + "/OneDrive/Pictures";
+    if (QDir(odPics).exists()) return odPics;
+    return QDir::homePath();
 }
 
 // 状态栏：网格视图（图片数 / 选中数 / 当前选中文件大小）
