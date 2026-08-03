@@ -49,3 +49,16 @@ _t.py
 qlens-plan.md
 qlens-plan-v1.1.md
 复盘与技术架构.md
+
+# CMake 构建产物
+CMakeCache.txt
+CMakeFiles/
+*.dir/
+*.vcxproj
+*.sln*
+cmake_install.cmake
+x64/
+Release/
+Debug/
+*.obj
+build*/

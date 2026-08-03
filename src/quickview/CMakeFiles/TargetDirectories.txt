@@ -1,4 +1,0 @@
-E:/PYTHON/qlens/src/quickview/CMakeFiles/qlens_decode.dir
-E:/PYTHON/qlens/src/quickview/CMakeFiles/qlens_quickview.dir
-E:/PYTHON/qlens/src/quickview/CMakeFiles/ALL_BUILD.dir
-E:/PYTHON/qlens/src/quickview/CMakeFiles/ZERO_CHECK.dir
