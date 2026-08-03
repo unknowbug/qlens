@@ -569,15 +569,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     }
-    case WM_NCHITTEST: {        // 无边框窗口：允许拖动（返回 HTCAPTION），但关闭按钮区域返回 HTCLIENT
+    case WM_NCHITTEST: {
         POINT pt = { (short)LOWORD(lp), (short)HIWORD(lp) };
         ScreenToClient(hwnd, &pt);
         int btn = RendererHitTestButton(pt.x, pt.y);
         if (btn == 4) return HTCLIENT;  // 关闭按钮可点击
-        // 顶部 40px 可拖动
-        RECT rc; GetClientRect(hwnd, &rc);
-        // 无边框窗口：禁止拖动窗体（Picasa 风格——极简，注意力集中看图）
-        // 关闭按钮区域已在上方命中 HTCLIENT
+        // DEBUG 模式（F12）可拖动窗体（测试换屏）；普通模式禁拖（Picasa 极简）
+        if (RendererIsDebug()) return HTCAPTION;
         return HTCLIENT;
     }
     case WM_MOUSEMOVE: {
