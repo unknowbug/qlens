@@ -1,9 +1,23 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include "ViewerWidget.h"
+#include "decode_api.h"
+#include "i18n.h"
 #include <QHBoxLayout>
 #include <QImageReader>
 #include <QThread>
 #include <QApplication>
 #include <QPainter>
+#include <QMenu>
+#include <QAction>
+#include <QMouseEvent>
+#include <QClipboard>
+#include <QMimeData>
+#include <QUrl>
+
+// 翻译辅助：msgid=中文，默认中文；.po 覆盖为目标语言
+static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(id)); }
 
 ViewerWidget::ViewerWidget(QWidget *parent) : QWidget(parent)
 {
@@ -21,6 +35,7 @@ ViewerWidget::ViewerWidget(QWidget *parent) : QWidget(parent)
     m_view->setRenderHint(QPainter::SmoothPixmapTransform, true);
     m_view->viewport()->setAcceptDrops(false);
     m_view->setAcceptDrops(false);
+    m_view->setBackgroundBrush(Qt::black);  // 黑色背景（与文件浏览器一致）
     // 滚轮/双击事件发生在 m_view 上，拦截转发到本控件处理
     m_view->viewport()->installEventFilter(this);
     m_view->installEventFilter(this);
@@ -33,7 +48,49 @@ bool ViewerWidget::eventFilter(QObject *obj, QEvent *event)
         wheelEvent(static_cast<QWheelEvent*>(event));
         return true;
     }
+    if (event->type() == QEvent::MouseButtonPress) {
+        auto *me = static_cast<QMouseEvent*>(event);
+        if (me->button() == Qt::RightButton) {
+            showContextMenu(me->globalPos());
+            return true;
+        }
+    }
     return QWidget::eventFilter(obj, event);
+}
+
+// 右键菜单（不再是左键行为）
+void ViewerWidget::showContextMenu(const QPoint &gpos)
+{
+    QMenu menu(this);
+    QAction *back    = menu.addAction(T(L"返回网格"));
+    menu.addSeparator();
+    QAction *prev    = menu.addAction(T(L"上一张"));
+    QAction *next    = menu.addAction(T(L"下一张"));
+    menu.addSeparator();
+    QAction *zoomin  = menu.addAction(T(L"放大"));
+    QAction *zoomout = menu.addAction(T(L"缩小"));
+    QAction *full    = menu.addAction(T(L"100%"));
+    QAction *fit     = menu.addAction(T(L"适应窗口"));
+    menu.addSeparator();
+    QAction *copypath = menu.addAction(T(L"复制"));
+
+    QAction *sel = menu.exec(gpos);
+    if (sel == back) { emit backRequested(); }
+    else if (sel == prev) { navigate(-1); }
+    else if (sel == next) { navigate(1); }
+    else if (sel == zoomin) { m_zoomFactor = (m_zoomFactor <= 0.0 ? 1.0 : m_zoomFactor) * 1.25; updateZoom(); }
+    else if (sel == zoomout) { m_zoomFactor = (m_zoomFactor <= 0.0 ? 1.0 : m_zoomFactor) / 1.25; updateZoom(); }
+    else if (sel == full) { m_zoomFactor = 1.0; updateZoom(); }
+    else if (sel == fit) { m_zoomFactor = 0.0; updateZoom(); }
+    else if (sel == copypath) {
+        // 三合一复制（与 QuickView 一致）：文件 + 路径 + 图片
+        QImage img = QLensCore::decodeImage(m_currentFile);
+        auto *mime = new QMimeData;
+        mime->setUrls({QUrl::fromLocalFile(m_currentFile)});
+        mime->setText(m_currentFile);
+        if (!img.isNull()) mime->setImageData(img);
+        QApplication::clipboard()->setMimeData(mime);
+    }
 }
 
 // ── 图片加载 ──────────────────────────────
@@ -50,6 +107,8 @@ void ViewerWidget::openFile(const QString &fp)
     for (auto &fmt : QImageReader::supportedImageFormats())
         f << ("*." + QString::fromLatin1(fmt));
     f << "*.cr2" << "*.cr3" << "*.nef" << "*.arw" << "*.dng" << "*.rw2";
+    // qlens 解码/插件支持的格式（QImageReader 不覆盖）
+    f << "*.heic" << "*.heif" << "*.avif" << "*.svg" << "*.svgz" << "*.jxr";
     m_currentDir.setNameFilters(f);
     m_currentDir.setFilter(QDir::Files | QDir::Readable);
     m_siblings = m_currentDir.entryList();
@@ -76,7 +135,12 @@ void ViewerWidget::decodeAsync(const QString &fp, int idx)
         QSize fs = r.size();
         if (fs.isValid() && fs.width() > 0 && (fs.width() > vp || fs.height() > vp))
             r.setScaledSize(fs.scaled(vp, vp, Qt::KeepAspectRatio));
-        QImage img = r.read(); if (img.isNull()) return;
+        QImage img = r.read();
+        if (img.isNull()) {
+            // qlens 回退（插件格式：HEIC/SVG/JXR 等 QImageReader 不支持）
+            img = QLensCore::decodeImage(fp);
+            if (img.isNull()) return;
+        }
         QPixmap pix = QPixmap::fromImage(img);
         // 二次平滑缩放（setScaledSize 不带抗锯齿）
         if (pix.width() > vp || pix.height() > vp)

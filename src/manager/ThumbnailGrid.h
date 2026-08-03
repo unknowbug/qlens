@@ -2,6 +2,7 @@
 #include <QWidget>
 #include <QListView>
 #include <QAbstractListModel>
+#include <QMimeData>
 #include <QStringList>
 #include <QPixmap>
 #include "TagStore.h"
@@ -43,6 +44,9 @@ public:
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
+    // 拖出：返回选中项的文件 URL（拖到资源管理器 = 复制文件）
+    QMimeData *mimeData(const QModelIndexList &indexes) const override;
+    QStringList mimeTypes() const override { return {QStringLiteral("text/uri-list")}; }
 
     void setItems(const QList<ThumbItem> &items);
     const ThumbItem &itemAt(int row) const { return m_items.at(row); }
@@ -85,11 +89,21 @@ signals:
 protected:
     void wheelEvent(QWheelEvent *e) override;
     void resizeEvent(QResizeEvent *e) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *e) override;
+    void dragMoveEvent(QDragMoveEvent *e) override;
+    void dropEvent(QDropEvent *e) override;
 
 private:
     int thumbCellSize() const { return m_thumbSize + 24; }  // 图 + 文字
 
     int  findModelRow(const QString &path) const;
+    // 右键批量功能（ACDSEE 风格）
+    void saveAsDialog(const QString &path);
+    void batchConvert();
+    void batchResize();
+    void batchRename();
+    QStringList allImagePaths() const;
     void applyFilter();
 
     TagStore    *m_store = nullptr;

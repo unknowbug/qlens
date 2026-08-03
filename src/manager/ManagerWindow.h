@@ -27,6 +27,11 @@ private:
     void openFolder(const QString &path);
     void backToGrid();
     void refreshToolbar(const QString &path);
+    // Settings
+    void setLanguage(const QString &lang);
+    void registerFileAssociations();
+    // MCP 帮助
+    void showMcpHelp();
 
     // 文件管理导航
     void goUp();       // 上级目录

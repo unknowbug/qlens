@@ -1,4 +1,8 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include "ThumbnailGrid.h"
+#include "i18n.h"
 #include <QDir>
 #include <QImageReader>
 #include "decode_api.h"
@@ -10,6 +14,24 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QFileIconProvider>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QAction>
+#include <QApplication>
+#include <QClipboard>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QUrl>
+#include <QFileDialog>
+#include <QInputDialog>
+#include <QMessageBox>
+
+// 翻译辅助：msgid=中文，默认中文；.po 覆盖为目标语言
+static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(id)); }
+
+// 跨盘文件夹递归复制（拖入文件夹用）
+static bool copyDirRecursive(const QString &srcDir, const QString &dstDir);
 #include <QBuffer>
 #include <QTimer>
 #include <QStyledItemDelegate>
@@ -327,6 +349,8 @@ public:
         for (auto &fmt : QImageReader::supportedImageFormats())
             filters << ("*." + QString::fromLatin1(fmt));
         filters << "*.cr2" << "*.cr3" << "*.nef" << "*.arw" << "*.dng" << "*.rw2";
+        // qlens 解码/插件支持的格式（QImageReader 不覆盖）
+        filters << "*.heic" << "*.heif" << "*.avif" << "*.svg" << "*.svgz" << "*.jxr";
         dir.setNameFilters(filters);
         dir.setFilter(QDir::Files | QDir::Readable);
         r.imageFiles = dir.entryList();
@@ -359,6 +383,12 @@ ThumbnailGrid::ThumbnailGrid(TagStore *store, QWidget *parent)
     setItemDelegate(new ThumbDelegate(m_model, &m_thumbSize, this));
     setStyleSheet("QListView{background:#111; border:none; color:#aaa;}");
 
+    // 拖放：从网格拖出到资源管理器 = 复制文件；拖图片进网格 = 复制到当前文件夹
+    setDragEnabled(true);
+    setAcceptDrops(true);
+    setDropIndicatorShown(false);
+    setDragDropMode(QAbstractItemView::DragDrop);
+
     connect(this, &QListView::doubleClicked, [this](const QModelIndex &idx) {
         if (!idx.isValid()) return;
         const ThumbItem &it = m_model->itemAt(idx.row());
@@ -370,6 +400,218 @@ ThumbnailGrid::ThumbnailGrid(TagStore *store, QWidget *parent)
         const ThumbItem &it = m_model->itemAt(idx.row());
         if (!it.isDir) emit imageClicked(it.path);
     });
+}
+
+// 右键菜单（打开/复制/删除——不再是左键行为）
+void ThumbnailGrid::contextMenuEvent(QContextMenuEvent *event)
+{
+    QModelIndex idx = indexAt(event->pos());
+    if (!idx.isValid()) return;
+    const ThumbItem &it = m_model->itemAt(idx.row());
+
+    QMenu menu(this);
+    QAction *open = menu.addAction(T(L"在查看器中打开"));
+    QAction *saveAs = menu.addAction(T(L"另存为..."));
+    menu.addSeparator();
+    QAction *cp   = menu.addAction(T(L"复制"));
+    menu.addSeparator();
+    QAction *del  = menu.addAction(T(L"删除（回收站）"));
+    menu.addSeparator();
+    QAction *batchConvAct   = menu.addAction(T(L"批量转换格式..."));
+    QAction *batchResizeAct = menu.addAction(T(L"批量调整大小..."));
+    QAction *batchRenameAct = menu.addAction(T(L"批量重命名..."));
+    QAction *sel  = menu.exec(event->globalPos());
+
+    if (sel == open) {
+        if (!it.isDir) emit imageClicked(it.path);
+    } else if (sel == saveAs) {
+        saveAsDialog(it.path);
+    } else if (sel == cp) {
+        // 三合一复制（与 QuickView 一致）：文件 + 路径 + 图片
+        QImage img = QLensCore::decodeImage(it.path);
+        auto *mime = new QMimeData;
+        mime->setUrls({QUrl::fromLocalFile(it.path)});   // 文件（拖放/粘贴）
+        mime->setText(it.path);                           // 路径文本
+        if (!img.isNull()) mime->setImageData(img);       // 图片位图
+        QApplication::clipboard()->setMimeData(mime);
+    } else if (sel == del) {
+        QFile::moveToTrash(it.path);
+        loadFolder(m_currentFolder);
+    } else if (sel == batchConvAct) {
+        batchConvert();
+    } else if (sel == batchResizeAct) {
+        batchResize();
+    } else if (sel == batchRenameAct) {
+        batchRename();
+    }
+}
+
+// ── 右键批量功能（ACDSEE 风格）──
+
+// 当前文件夹全部图片路径（按网格显示顺序）
+QStringList ThumbnailGrid::allImagePaths() const
+{
+    QStringList paths;
+    for (int i = 0; i < m_model->rowCount(); ++i) {
+        const ThumbItem &it = m_model->itemAt(i);
+        if (!it.isDir) paths << it.path;
+    }
+    return paths;
+}
+
+// 另存为：QImage 解码 → 保存为选择的格式（扩展名决定）
+void ThumbnailGrid::saveAsDialog(const QString &path)
+{
+    QFileInfo fi(path);
+    QString def = fi.path() + "/" + fi.completeBaseName() + "_copy.png";
+    QString dst = QFileDialog::getSaveFileName(this, T(L"另存为"), def,
+        T(L"PNG (*.png);;JPEG (*.jpg *.jpeg);;WebP (*.webp);;BMP (*.bmp)"));
+    if (dst.isEmpty()) return;
+    QImage img = QLensCore::decodeImage(path);
+    if (img.isNull()) { QMessageBox::warning(this, T(L"另存为"), T(L"无法解码图片")); return; }
+    if (!img.save(dst))
+        QMessageBox::warning(this, T(L"另存为"), T(L"保存失败"));
+}
+
+// 批量转换格式：选目标格式 + 输出目录 → 全部转换
+void ThumbnailGrid::batchConvert()
+{
+    bool ok = false;
+    QString fmt = QInputDialog::getItem(this, T(L"批量转换格式"), T(L"目标格式："),
+        {QStringLiteral("PNG"), QStringLiteral("JPEG"), QStringLiteral("WebP"), QStringLiteral("BMP")},
+        0, false, &ok);
+    if (!ok) return;
+    QString outDir = QFileDialog::getExistingDirectory(this, T(L"选择输出目录"), m_currentFolder);
+    if (outDir.isEmpty()) return;
+
+    const QStringList paths = allImagePaths();
+    QString ext = fmt.toLower() == "jpeg" ? "jpg" : fmt.toLower();
+    int done = 0;
+    for (const QString &src : paths) {
+        QImage img = QLensCore::decodeImage(src);
+        if (img.isNull()) continue;
+        QString out = QDir(outDir).filePath(QFileInfo(src).completeBaseName() + "." + ext);
+        if (img.save(out)) done++;
+    }
+    QMessageBox::information(this, T(L"批量转换格式"),
+        QString("%1/%2").arg(done).arg(paths.size()));
+}
+
+// 批量调整大小：目标最长边像素 → 输出目录（不覆盖原图）
+void ThumbnailGrid::batchResize()
+{
+    bool ok = false;
+    int maxSide = QInputDialog::getInt(this, T(L"批量调整大小"), T(L"目标最长边（像素）："),
+        1920, 16, 32768, 1, &ok);
+    if (!ok) return;
+    QString outDir = QFileDialog::getExistingDirectory(this, T(L"选择输出目录"), m_currentFolder);
+    if (outDir.isEmpty()) return;
+
+    const QStringList paths = allImagePaths();
+    int done = 0;
+    for (const QString &src : paths) {
+        QImage img = QLensCore::decodeImage(src);
+        if (img.isNull()) continue;
+        QSize s = img.size();
+        if (s.width() > maxSide || s.height() > maxSide)
+            img = img.scaled(maxSide, maxSide, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        QString out = QDir(outDir).filePath(QFileInfo(src).fileName());
+        if (img.save(out)) done++;
+    }
+    QMessageBox::information(this, T(L"批量调整大小"),
+        QString("%1/%2").arg(done).arg(paths.size()));
+}
+
+// 批量重命名：模板 + 起始序号（保留原扩展名），ACDSEE 风格
+void ThumbnailGrid::batchRename()
+{
+    bool ok = false;
+    QString tmpl = QInputDialog::getText(this, T(L"批量重命名"),
+        T(L"名称模板（如 photo_、IMG_）："), QLineEdit::Normal, QStringLiteral("photo_"), &ok);
+    if (!ok) return;
+    int start = QInputDialog::getInt(this, T(L"批量重命名"), T(L"起始序号："), 1, 0, 999999, 1, &ok);
+    if (!ok) return;
+
+    const QStringList paths = allImagePaths();
+    int n = start;
+    int done = 0;
+    for (const QString &src : paths) {
+        QString ext = QFileInfo(src).suffix();
+        QString newName = QString("%1%2.%3").arg(tmpl).arg(n++, 4, 10, QLatin1Char('0')).arg(ext);
+        QString dst = QDir(m_currentFolder).filePath(newName);
+        if (QFileInfo(dst).exists()) continue;
+        if (QFile::rename(src, dst)) done++;
+    }
+    if (done > 0) loadFolder(m_currentFolder);
+    QMessageBox::information(this, T(L"批量重命名"),
+        QString("%1/%2").arg(done).arg(paths.size()));
+}
+
+// 拖出：选中项 → 文件 URL（拖到资源管理器 = 复制）
+QMimeData *ThumbModel::mimeData(const QModelIndexList &indexes) const
+{
+    auto *mime = new QMimeData;
+    QList<QUrl> urls;
+    for (const QModelIndex &idx : indexes) {
+        if (idx.isValid() && idx.row() >= 0 && idx.row() < (int)m_items.size())
+            urls << QUrl::fromLocalFile(m_items.at(idx.row()).path);
+    }
+    mime->setUrls(urls);
+    return mime;
+}
+
+// 拖入：允许 url 拖放
+void ThumbnailGrid::dragEnterEvent(QDragEnterEvent *e)
+{
+    if (e->mimeData()->hasUrls())
+        e->acceptProposedAction();
+}
+
+void ThumbnailGrid::dragMoveEvent(QDragMoveEvent *e)
+{
+    if (e->mimeData()->hasUrls())
+        e->acceptProposedAction();
+}
+
+// 拖入：图片/文件夹复制到当前文件夹（参考 Windows 资源管理器：同盘=移动，跨盘=复制）
+void ThumbnailGrid::dropEvent(QDropEvent *e)
+{
+    if (m_currentFolder.isEmpty() || !e->mimeData()->hasUrls()) return;
+    int done = 0;
+    QString curRoot = QDir(m_currentFolder).rootPath();
+    for (const QUrl &url : e->mimeData()->urls()) {
+        QString src = url.toLocalFile();
+        if (src.isEmpty()) continue;
+        QFileInfo fi(src);
+        QString dst = QDir(m_currentFolder).filePath(fi.fileName());
+        if (QFileInfo(dst).exists() || src == dst) continue;
+        bool sameDrive = (QDir(src).rootPath() == curRoot);
+        if (fi.isDir()) {
+            if (sameDrive) { if (QDir(src).rename(src, dst)) done++; }
+            else           { if (copyDirRecursive(src, dst)) done++; }
+        } else {
+            if (sameDrive) { if (QFile::rename(src, dst)) done++; }
+            else           { if (QFile::copy(src, dst)) done++; }
+        }
+    }
+    if (done > 0) loadFolder(m_currentFolder);
+}
+
+// 跨盘文件夹递归复制
+bool copyDirRecursive(const QString &srcDir, const QString &dstDir)
+{
+    QDir dst(dstDir);
+    if (!dst.mkpath(dstDir)) return false;
+    for (const QString &name : QDir(srcDir).entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) {
+        QString src = QDir(srcDir).filePath(name);
+        QString dstPath = QDir(dstDir).filePath(name);
+        if (QFileInfo(src).isDir()) {
+            if (!copyDirRecursive(src, dstPath)) return false;
+        } else {
+            if (!QFile::copy(src, dstPath)) return false;
+        }
+    }
+    return true;
 }
 
 ThumbnailGrid::~ThumbnailGrid() {

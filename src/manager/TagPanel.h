@@ -2,6 +2,7 @@
 #include <QWidget>
 #include <QListWidget>
 #include <QLineEdit>
+#include <QCompleter>
 #include "TagStore.h"
 
 // 标签操作面板 —— 当前图片标签列表 + 前缀补全输入

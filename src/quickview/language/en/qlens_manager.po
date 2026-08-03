@@ -3,3 +3,161 @@
 msgid "QLens 管理器"
 msgstr "QLens Manager"
 
+msgid "文件(&F)"
+msgstr "&File"
+
+msgid "打开文件夹(&O)..."
+msgstr "&Open Folder..."
+
+msgid "打开图片(&O)..."
+msgstr "&Open Image..."
+
+msgid "退出(&X)"
+msgstr "E&xit"
+
+msgid "设置(&S)"
+msgstr "&Settings"
+
+msgid "语言(&L)"
+msgstr "&Language"
+
+msgid "注册为默认看图器(&R)"
+msgstr "&Register as default image viewer"
+
+msgid "关于 MCP(&A)"
+msgstr "&About MCP"
+
+msgid "浏览"
+msgstr "Browse"
+
+msgid "标签"
+msgstr "Tags"
+
+msgid "就绪"
+msgstr "Ready"
+
+msgid "查看器"
+msgstr "Viewer"
+
+msgid "← 返回"
+msgstr "← Back"
+
+msgid "返回 (Alt+←)"
+msgstr "Back (Alt+Left)"
+
+msgid "前进 (Alt+→)"
+msgstr "Forward (Alt+Right)"
+
+msgid "上级目录 (Backspace)"
+msgstr "Up one level (Backspace)"
+
+msgid "(无文件夹)"
+msgstr "(no folder)"
+
+msgid "按标签过滤..."
+msgstr "Filter by tag..."
+
+msgid "按标签高亮..."
+msgstr "Highlight by tag..."
+
+msgid "清除过滤与高亮"
+msgstr "Clear filter & highlight"
+
+msgid "打开文件夹"
+msgstr "Open Folder"
+
+msgid "打开图片"
+msgstr "Open Image"
+
+msgid "设置"
+msgstr "Settings"
+
+msgid "语言已更改，重启后生效。"
+msgstr "Language changed. Restart to apply."
+
+msgid "选中图片的标签"
+msgstr "Selected Image Tags"
+
+msgid "移除标签"
+msgstr "Remove Tag"
+
+msgid "添加标签"
+msgstr "Add Tag"
+
+msgid "输入标签 + 回车..."
+msgstr "Type tag + Enter..."
+
+msgid "输入标签（用 , 分隔）+ 回车..."
+msgstr "Type tags (comma separated) + Enter..."
+
+msgid "返回网格"
+msgstr "Back to grid"
+
+msgid "上一张"
+msgstr "Previous"
+
+msgid "下一张"
+msgstr "Next"
+
+msgid "放大"
+msgstr "Zoom In"
+
+msgid "缩小"
+msgstr "Zoom Out"
+
+msgid "100%"
+msgstr "100%"
+
+msgid "适应窗口"
+msgstr "Fit to window"
+
+msgid "复制路径"
+msgstr "Copy Path"
+
+msgid "复制"
+msgstr "Copy"
+
+msgid "在查看器中打开"
+msgstr "Open in Viewer"
+
+msgid "复制文件名"
+msgstr "Copy Filename"
+
+msgid "删除（回收站）"
+msgstr "Delete (Recycle Bin)"
+
+msgid "另存为..."
+msgstr "Save As..."
+
+msgid "批量转换格式..."
+msgstr "Batch Convert Format..."
+
+msgid "批量调整大小..."
+msgstr "Batch Resize..."
+
+msgid "批量重命名..."
+msgstr "Batch Rename..."
+
+msgid "目标格式："
+msgstr "Target format:"
+
+msgid "选择输出目录"
+msgstr "Choose output directory"
+
+msgid "目标最长边（像素）："
+msgstr "Max side (pixels):"
+
+msgid "名称模板（如 photo_、IMG_）："
+msgstr "Name template (e.g. photo_, IMG_):"
+
+msgid "起始序号："
+msgstr "Starting number:"
+
+msgid "无法解码图片"
+msgstr "Cannot decode image"
+
+msgid "保存失败"
+msgstr "Save failed"
+
+msgid "PNG (*.png);;JPEG (*.jpg *.jpeg);;WebP (*.webp);;BMP (*.bmp)"
+msgstr "PNG (*.png);;JPEG (*.jpg *.jpeg);;WebP (*.webp);;BMP (*.bmp)"

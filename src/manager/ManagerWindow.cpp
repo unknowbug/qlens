@@ -2,6 +2,7 @@
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
+#include <QMessageBox>
 #include "i18n.h"
 #include <QFileDialog>
 #include <QFileInfo>
@@ -9,6 +10,9 @@
 #include <QApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+
+// 翻译辅助：msgid=中文，默认中文；en.po 覆盖为英文
+static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(id)); }
 #include <QLabel>
 
 #ifdef Q_OS_WIN
@@ -61,11 +65,11 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     topBar->setStyleSheet("background:#1e1e1e;");
     auto *topLay = new QHBoxLayout(topBar);
     topLay->setContentsMargins(8, 4, 8, 4);
-    auto *backBtn = new QPushButton(tr("\u2190 Back"), topBar);
+    auto *backBtn = new QPushButton(T(L"← 返回"), topBar);
     backBtn->setStyleSheet("QPushButton{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:4px 12px;}"
                            "QPushButton:hover{background:#3a3a3a; color:#fff;}");
     connect(backBtn, &QPushButton::clicked, this, &ManagerWindow::backToGrid);
-    m_viewTitle = new QLabel(tr("Viewer"), topBar);
+    m_viewTitle = new QLabel(T(L"查看器"), topBar);
     m_viewTitle->setStyleSheet("color:#aaa; font-size:13px; padding-left:8px;");
     topLay->addWidget(backBtn);
     topLay->addWidget(m_viewTitle, 1);
@@ -78,10 +82,11 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
 
     connect(m_viewer, &ViewerWidget::imageChanged, [this](const QString &p, int) {
         // 右侧 TagPanel 跟随切图显示标签
-        m_tagPanel->setCurrentImage(p);
-        m_viewTitle->setText(QFileInfo(p).fileName());
+        m_tagPanel->setCurrentImage(p);        m_viewTitle->setText(QFileInfo(p).fileName());
         setWindowTitle(QFileInfo(p).fileName() + " — QLens");
     });
+    // 右键菜单「返回网格」
+    connect(m_viewer, &ViewerWidget::backRequested, this, &ManagerWindow::backToGrid);
 
     // ── 中央容器：网格顶部工具条 + QStackedWidget ──
     auto *central = new QWidget(this);
@@ -106,9 +111,9 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
                          "QPushButton:disabled{color:#555; background:#222;}");
         return b;
     };
-    m_backBtn = mkNavBtn("\u2190", tr("Back (Alt+Left)"));
-    m_forwardBtn = mkNavBtn("\u2192", tr("Forward (Alt+Right)"));
-    m_upBtn = mkNavBtn("\u2191", tr("Up one level (Backspace)"));
+    m_backBtn = mkNavBtn("\u2190", T(L"返回 (Alt+←)"));
+    m_forwardBtn = mkNavBtn("\u2192", T(L"前进 (Alt+→)"));
+    m_upBtn = mkNavBtn("\u2191", T(L"上级目录 (Backspace)"));
     connect(m_backBtn, &QPushButton::clicked, this, &ManagerWindow::goBack);
     connect(m_forwardBtn, &QPushButton::clicked, this, &ManagerWindow::goForward);
     connect(m_upBtn, &QPushButton::clicked, this, &ManagerWindow::goUp);
@@ -117,7 +122,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     tl->addWidget(m_upBtn);
     tl->addSpacing(4);
 
-    m_pathLabel = new QLabel(tr("(no folder)"), toolbar);
+    m_pathLabel = new QLabel(T(L"(无文件夹)"), toolbar);
     m_pathLabel->setStyleSheet("color:#aaa; font-size:12px;");
     m_pathLabel->setMinimumWidth(160);
     tl->addWidget(m_pathLabel, 1);
@@ -125,7 +130,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     m_filterCombo = new QComboBox(toolbar);
     m_filterCombo->setEditable(true);
     m_filterCombo->setInsertPolicy(QComboBox::NoInsert);
-    m_filterCombo->setPlaceholderText(tr("Filter by tag..."));
+    m_filterCombo->setPlaceholderText(T(L"按标签过滤..."));
     m_filterCombo->setMinimumWidth(140);
     m_filterCombo->setStyleSheet("QComboBox{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:3px;}");
     tl->addWidget(m_filterCombo);
@@ -133,13 +138,13 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     m_highlightCombo = new QComboBox(toolbar);
     m_highlightCombo->setEditable(true);
     m_highlightCombo->setInsertPolicy(QComboBox::NoInsert);
-    m_highlightCombo->setPlaceholderText(tr("Highlight by tag..."));
+    m_highlightCombo->setPlaceholderText(T(L"按标签高亮..."));
     m_highlightCombo->setMinimumWidth(140);
     m_highlightCombo->setStyleSheet("QComboBox{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:3px;}");
     tl->addWidget(m_highlightCombo);
 
     auto *clearBtn = new QPushButton(tr("\u2715"), toolbar);  // ✕
-    clearBtn->setToolTip(tr("Clear filter & highlight"));
+    clearBtn->setToolTip(T(L"清除过滤与高亮"));
     clearBtn->setFixedSize(26, 24);
     clearBtn->setStyleSheet("QPushButton{background:#3a2a2a; color:#d88; border:1px solid #555;}"
                             "QPushButton:hover{background:#4a3a3a;}");
@@ -167,33 +172,63 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
 
     // ── 左侧 Dock：文件夹树 + 标签搜索 ──
     m_folderPanel = new FolderPanel(this);
-    auto *leftDock = new QDockWidget(tr("Browse"), this);
+    auto *leftDock = new QDockWidget(T(L"浏览"), this);
     leftDock->setObjectName("browse");
     leftDock->setWidget(m_folderPanel);
     addDockWidget(Qt::LeftDockWidgetArea, leftDock);
 
     // ── 右侧 Dock：标签面板 ──
     m_tagPanel = new TagPanel(m_store, this);
-    auto *rightDock = new QDockWidget(tr("Tags"), this);
+    auto *rightDock = new QDockWidget(T(L"标签"), this);
     rightDock->setObjectName("tags");
     rightDock->setWidget(m_tagPanel);
     addDockWidget(Qt::RightDockWidgetArea, rightDock);
 
     // ── 状态栏 ──
-    statusBar()->showMessage(tr("Ready"));
+    statusBar()->showMessage(T(L"就绪"));
 
     // ── 菜单 ──
-    auto *fm = menuBar()->addMenu(tr("&File"));
-    fm->addAction(tr("&Open Folder..."), [this]() {
-        QString d = QFileDialog::getExistingDirectory(this, tr("Open Folder"));
+    auto *fm = menuBar()->addMenu(T(L"文件(&F)"));
+    fm->addAction(T(L"打开文件夹(&O)..."), [this]() {
+        QString d = QFileDialog::getExistingDirectory(this, T(L"打开文件夹"));
         if (!d.isEmpty()) openFolder(d);
     });
-    fm->addAction(tr("&Open Image..."), [this]() {
-        QString f = QFileDialog::getOpenFileName(this, tr("Open Image"));
+    fm->addAction(T(L"打开图片(&O)..."), [this]() {
+        QString f = QFileDialog::getOpenFileName(this, T(L"打开图片"));
         if (!f.isEmpty()) openInViewer(f);
     });
     fm->addSeparator();
-    fm->addAction(tr("E&xit"), qApp, &QApplication::quit);
+    fm->addAction(T(L"退出(&X)"), qApp, &QApplication::quit);
+
+    // ── Settings 菜单（语言切换 + 注册默认看图器）──
+    auto *sm = menuBar()->addMenu(T(L"设置(&S)"));
+    auto *langMenu = sm->addMenu(T(L"语言(&L)"));
+    QAction *zhAct = langMenu->addAction(tr("中文"));
+    QAction *enAct = langMenu->addAction(tr("English"));
+    zhAct->setCheckable(true); enAct->setCheckable(true);
+    // 当前语言勾选标识（读 qlens_config.ini）
+    {
+        QString iniPath = QCoreApplication::applicationDirPath() + "/qlens_config.ini";
+        wchar_t lang[16] = {};
+        GetPrivateProfileStringW(L"General", L"language", L"", lang, 16, (LPCWSTR)iniPath.utf16());
+        bool en = (_wcsicmp(lang, L"en") == 0 || _wcsicmp(lang, L"English") == 0);
+        zhAct->setChecked(!en);
+        enAct->setChecked(en);
+    }
+    connect(zhAct, &QAction::triggered, [this, zhAct, enAct]() {
+        zhAct->setChecked(true); enAct->setChecked(false);
+        setLanguage(QStringLiteral("zh"));
+    });
+    connect(enAct, &QAction::triggered, [this, zhAct, enAct]() {
+        enAct->setChecked(true); zhAct->setChecked(false);
+        setLanguage(QStringLiteral("en"));
+    });
+    sm->addSeparator();
+    sm->addAction(T(L"注册为默认看图器(&R)"), [this]() { registerFileAssociations(); });
+
+    // ── MCP 菜单（帮助介绍 MCP 功能）──
+    auto *mcpMenu = menuBar()->addMenu(tr("&MCP"));
+    mcpMenu->addAction(T(L"关于 MCP(&A)"), [this]() { showMcpHelp(); });
 
     // ── 信号路由 ──
     connect(m_folderPanel, &FolderPanel::folderSelected, [this](const QString &path) {
@@ -337,4 +372,67 @@ bool ManagerWindow::eventFilter(QObject *obj, QEvent *event) {
         }
     }
     return QMainWindow::eventFilter(obj, event);
+}
+
+// ── Settings ──
+// 切换界面语言（写 qlens_config.ini；重启生效——i18n 启动时加载）
+void ManagerWindow::setLanguage(const QString &lang)
+{
+    QString iniPath = QCoreApplication::applicationDirPath() + "/qlens_config.ini";
+    WritePrivateProfileStringW(L"General", L"language",
+        (LPCWSTR)lang.utf16(), (LPCWSTR)iniPath.utf16());
+    QMessageBox::information(this, T(L"设置"), T(L"语言已更改，重启后生效。"));
+}
+
+// ── MCP 帮助 ──
+// 弹出帮助窗口介绍 QLens MCP Server 功能
+void ManagerWindow::showMcpHelp()
+{
+    const QString help =
+        QStringLiteral(
+        "QLens MCP Server 让 AI 客户端（Claude / CherryStudio / Cursor 等）操作你的图片库。\n\n"
+        "可用工具：\n"
+        "  qlens_list_folder   列出文件夹图片\n"
+        "  qlens_search_tag    按标签搜索\n"
+        "  qlens_get_tags      读图片标签\n"
+        "  qlens_set_tags      设图片标签\n"
+        "  qlens_add_tags      追加标签\n"
+        "  qlens_folder_tags   文件夹内所有标签\n"
+        "  qlens_analyze       批量 QC 打标（自动预压缩，省 token）\n\n"
+        "配置（MCP 客户端添加 stdio server）：\n"
+        "  python <QLens>/src/mcp/server.py\n\n"
+        "注意：请保持 Manager 运行——图片分析前自动预压缩，防止超大图直接上传烧爆 token。\n\n"
+        "协议文档：docs/QLENS_TAG_PROTOCOL.md");
+    QMessageBox::information(this, T(L"QLens MCP"), help);
+}
+
+// 注册系统默认看图器（图片类型 → QLens QuickView 的"打开方式"）
+void ManagerWindow::registerFileAssociations()
+{
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    // ProgID 命令：exe "%1"
+    std::wstring cmd = std::wstring(L"\"") + exe + L"\" \"%1\"";
+    const wchar_t *exts[] = { L".jpg", L".jpeg", L".png", L".gif", L".bmp", L".webp",
+        L".heic", L".heif", L".avif", L".jxr", L".svg", L".tif", L".tiff" };
+    HKEY k;
+    // ProgID shell open command（注册到 HKCU）
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Classes\\QLensQuickView\\shell\\open\\command", 0, nullptr,
+        0, KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(k, L"", 0, REG_SZ, (const BYTE*)cmd.c_str(),
+            (DWORD)(cmd.size() * sizeof(wchar_t)));
+        RegCloseKey(k);
+    }
+    // 各扩展名 OpenWithProgIDs
+    for (const wchar_t *ext : exts) {
+        std::wstring key = std::wstring(L"Software\\Classes\\") + ext + L"\\OpenWithProgIDs";
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0,
+            KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+            RegSetValueExW(k, L"QLensQuickView", 0, REG_SZ, nullptr, 0);
+            RegCloseKey(k);
+        }
+    }
+    QMessageBox::information(this, T(L"设置"),
+        tr("QLens QuickView registered. Right-click an image → Open with → QLens QuickView."));
 }

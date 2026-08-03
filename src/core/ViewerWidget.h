@@ -25,6 +25,7 @@ public:
 
 signals:
     void imageChanged(const QString &filePath, int index);
+    void backRequested();
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -36,6 +37,7 @@ private:
     void decodeAsync(const QString &filePath, int idx);
     void navigate(int direction);
     void updateZoom();
+    void showContextMenu(const QPoint &gpos);
 
     QGraphicsView       *m_view   = nullptr;
     QGraphicsScene      *m_scene  = nullptr;
