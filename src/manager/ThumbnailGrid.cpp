@@ -648,7 +648,7 @@ void ThumbnailGrid::mousePressEvent(QMouseEvent *e)
         if (idx.isValid() && selectionModel()->isSelected(idx)) {
             // 文件名区域（同 delegate 绘制 textRect：图标下方）
             QRect cell = visualRect(idx);
-            QRect textRect = cell.adjusted(4, *m_thumbSize + 6, -4, -2);
+            QRect textRect = cell.adjusted(4, m_thumbSize + 6, -4, -2);
             qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (textRect.contains(e->pos()) &&
                 m_lastClickRow == idx.row() && now - m_lastClickTime > 500) {
