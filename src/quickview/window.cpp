@@ -38,6 +38,7 @@ int RendererNextRequestId();
 void RendererPan(int dx, int dy);
 void RendererResetPan();
 void RendererRotate(int steps);
+void RendererToggleDebug();
 static void CopyCurrentImage();
 static void SaveAsDialog(HWND hwnd);
 static void DeleteCurrentToRecycle();
@@ -519,6 +520,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         else if (wp == 'S' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) { SaveAsDialog(hwnd); }
         else if (wp == 'F' || wp == 'f') { RendererSetZoom(1.0f); InvalidateRect(hwnd, nullptr, TRUE); }
         else if (wp == 'S' || wp == 's') { RendererSetZoom(0.0f); InvalidateRect(hwnd, nullptr, TRUE); }
+        else if (wp == VK_F12) { RendererToggleDebug(); InvalidateRect(hwnd, nullptr, TRUE); }  // DEBUG 开关
         else handled = false;
         return handled ? 0 : DefWindowProcW(hwnd, msg, wp, lp);
     }

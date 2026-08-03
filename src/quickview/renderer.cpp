@@ -57,6 +57,8 @@ static int g_exifRot = 0;   // EXIF Orientation（自动旋转，渲染时叠加
 static bool g_isHdrImage = false;  // 源图是高位深（真 HDR 图）
 static float g_highRatio = 0.0f;   // 高光像素比例（>0.8 亮度占比，亮图降高光）
 static int g_pixFmt = 0;           // 0=BGRA8, 1=RGBA16F（scRGB 线性，HDR 直通）
+static bool g_debugMode = false;   // DEBUG 开关（F12）——显示格式状态
+void RendererToggleDebug() { g_debugMode = !g_debugMode; }
 // 主图平移（放大后拖动查看）
 static int g_panX = 0, g_panY = 0;
 static float g_lastFit = 1.0f;  // 最近一次渲染的 fit 比例（滚轮从适配缩放时用）
@@ -672,6 +674,71 @@ static void DrawButtons(unsigned char *frame, int winW, int winH, bool is16f = f
     RenderButtonGDI(frame, winW, winH, g_btnNextX, g_btnNextY, 44, 36, L"\u25B6", g_hoverBtn == 2, 14, 14, is16f);
 }
 
+// 绘制 DEBUG 信息（左上角，F12 切换）——显示当前格式状态
+static void DrawDebugInfo(unsigned char *frame, int winW, int winH, bool is16f)
+{
+    wchar_t buf[256];
+    const wchar_t *fmt = (g_pixFmt == 1) ? L"16F (HDR scRGB)" : L"8bit (SDR)";
+    wsprintfW(buf, L"FMT: %s\nIMG: %dx%d  WIN: %dx%d  ZOOM: %.2f", fmt, g_imgW, g_imgH, winW, winH, g_zoom);
+
+    HDC screenDC = GetDC(nullptr);
+    HDC memDC = CreateCompatibleDC(screenDC);
+    HFONT font = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Consolas");
+    HGDIOBJ oldF = SelectObject(memDC, font);
+    SIZE sz;
+    GetTextExtentPoint32W(memDC, buf, (int)wcslen(buf), &sz);
+    int bw = sz.cx + 24, bh = sz.cy + 16;
+    int bx = 12, by = 12;  // 左上角
+
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = bw;
+    bi.bmiHeader.biHeight = -bh;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    HBITMAP bmp = CreateDIBSection(memDC, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bmp || !bits) { DeleteObject(bmp); SelectObject(memDC, oldF); DeleteObject(font); DeleteDC(memDC); ReleaseDC(nullptr, screenDC); return; }
+    HGDIOBJ oldBmp = SelectObject(memDC, bmp);
+    HBRUSH bg = CreateSolidBrush(RGB(0, 0, 0));
+    HBRUSH oldBr = (HBRUSH)SelectObject(memDC, bg);
+    Rectangle(memDC, 0, 0, bw, bh);
+    SelectObject(memDC, oldBr);
+    DeleteObject(bg);
+    SetBkMode(memDC, TRANSPARENT);
+    SetTextColor(memDC, RGB(0, 255, 0));
+    RECT tr = { 12, 8, bw - 4, bh };
+    DrawTextW(memDC, buf, -1, &tr, DT_LEFT | DT_TOP | DT_NOPREFIX);
+
+    // 合进 frame（不透明，清晰可读）
+    for (int yy = 0; yy < bh; ++yy)
+        for (int xx = 0; xx < bw; ++xx) {
+            int fx = bx + xx, fy = by + yy;
+            if (fx < 0 || fx >= winW || fy < 0 || fy >= winH) continue;
+            unsigned char *src = (unsigned char*)bits + ((size_t)yy * bw + xx) * 4;
+            unsigned char *dst = frame + ((size_t)fy * winW + fx) * (is16f ? 8 : 4);
+            if (is16f) {
+                unsigned short *dh = (unsigned short*)dst;
+                dh[0] = rFloat2Half(src[2]/255.0f);  // R（BGRA→RGBA）
+                dh[1] = rFloat2Half(src[1]/255.0f);
+                dh[2] = rFloat2Half(src[0]/255.0f);
+                dh[3] = rFloat2Half(1.0f);
+            } else {
+                dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = 255;
+            }
+        }
+
+    SelectObject(memDC, oldBmp);
+    DeleteObject(bmp);
+    SelectObject(memDC, oldF);
+    DeleteObject(font);
+    DeleteDC(memDC);
+    ReleaseDC(nullptr, screenDC);
+}
+
 // 绘制当前文件名到 frame（缩略图条上方靠右，半透明黑底白字）
 static void DrawFilename(unsigned char *frame, int winW, int winH, const wchar_t *name, bool is16f = false)
 {
@@ -845,6 +912,8 @@ void RendererRender()
                 DrawFilename(g_pixFmt == 1 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, n, g_pixFmt == 1);
             }
         }
+        if (g_debugMode)
+            DrawDebugInfo(g_pixFmt == 1 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, g_pixFmt == 1);
 
         sd.Width = g_w; sd.Height = g_h; sd.MipLevels = 1; sd.ArraySize = 1;
         sd.Usage = D3D11_USAGE_IMMUTABLE; sd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
