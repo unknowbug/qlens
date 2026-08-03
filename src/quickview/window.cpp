@@ -48,7 +48,7 @@ std::wstring g_curFile;
 static HWND g_hwnd = nullptr;
 static std::vector<std::wstring> g_files;
 static int g_curIdx = -1;
-static const wchar_t *IMG_EXTS[] = { L".jpg",L".jpeg",L".png",L".webp",L".bmp",L".gif",L".tif",L".tiff",L".svg",L".heic",L".heif",L".avif" };
+static const wchar_t *IMG_EXTS[] = { L".jpg",L".jpeg",L".png",L".webp",L".bmp",L".gif",L".tif",L".tiff",L".svg",L".heic",L".heif",L".avif",L".jxr",L".wdp" };
 // 异步解码：最新请求 ID（取消令牌）
 static std::atomic<int> g_pendingReqId{0};
 static const UINT WM_ASYNC_DECODED = WM_APP + 1;
