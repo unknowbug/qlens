@@ -28,6 +28,8 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QBuffer>
+#include <QMouseEvent>
+#include <QDateTime>
 
 // 翻译辅助：msgid=中文，默认中文；.po 覆盖为目标语言
 static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(id)); }
@@ -436,6 +438,7 @@ void ThumbnailGrid::contextMenuEvent(QContextMenuEvent *event)
     QAction *saveAs = menu.addAction(T(L"另存为..."));
     menu.addSeparator();
     QAction *cp   = menu.addAction(T(L"复制"));
+    QAction *ren  = menu.addAction(T(L"重命名 (F2)"));
     menu.addSeparator();
     QAction *del  = menu.addAction(T(L"删除（回收站）"));
     menu.addSeparator();
@@ -448,6 +451,8 @@ void ThumbnailGrid::contextMenuEvent(QContextMenuEvent *event)
         if (!it.isDir) emit imageDoubleClicked(it.path);
     } else if (sel == saveAs) {
         saveAsDialog(it.path);
+    } else if (sel == ren) {
+        renameSelected();
     } else if (sel == cp) {
         // 三合一复制（与 QuickView 一致）：文件 + 路径 + 图片
         QImage img = QLensCore::decodeImage(it.path);
@@ -563,7 +568,9 @@ void ThumbnailGrid::batchRename()
     int start = QInputDialog::getInt(this, T(L"批量重命名"), T(L"起始序号："), 1, 0, 999999, 1, &ok);
     if (!ok) return;
 
-    const QStringList paths = allImagePaths();
+    const QStringList paths = selectedImagePaths().isEmpty()
+        ? allImagePaths()   // 无选中 → 全部
+        : selectedImagePaths();
     int n = start;
     int done = 0;
     for (const QString &src : paths) {
@@ -576,6 +583,84 @@ void ThumbnailGrid::batchRename()
     if (done > 0) loadFolder(m_currentFolder);
     QMessageBox::information(this, T(L"批量重命名"),
         QString("%1/%2").arg(done).arg(paths.size()));
+}
+
+// 选中的图片路径（不含目录）
+QStringList ThumbnailGrid::selectedImagePaths() const
+{
+    QStringList paths;
+    for (const QModelIndex &idx : selectionModel()->selectedIndexes()) {
+        if (idx.isValid() && idx.row() >= 0 && idx.row() < m_model->rowCount()) {
+            const ThumbItem &it = m_model->itemAt(idx.row());
+            if (!it.isDir) paths << it.path;
+        }
+    }
+    return paths;
+}
+
+// 重命名：单选=单文件重命名（对话框）；多选=批量重命名（选中项）
+void ThumbnailGrid::renameSelected()
+{
+    QStringList sel = selectedImagePaths();
+    if (sel.isEmpty()) return;
+    if (sel.size() == 1) {
+        QFileInfo fi(sel.first());
+        bool ok = false;
+        QString newName = QInputDialog::getText(this, T(L"重命名"), T(L"新文件名："),
+            QLineEdit::Normal, fi.fileName(), &ok);
+        if (!ok) return;
+        newName = newName.trimmed();
+        if (newName.isEmpty()) return;
+        if (!newName.contains('.')) newName += "." + fi.suffix();  // 补扩展名
+        QString dst = QDir(m_currentFolder).filePath(newName);
+        if (QFileInfo(dst).exists()) {
+            QMessageBox::warning(this, T(L"重命名"), T(L"文件已存在"));
+            return;
+        }
+        if (QFile::rename(sel.first(), dst))
+            loadFolder(m_currentFolder);
+    } else {
+        batchRename();  // 多选 → 批量重命名（选中项）
+    }
+}
+
+// F2 重命名；Delete 删除到回收站
+void ThumbnailGrid::keyPressEvent(QKeyEvent *e)
+{
+    if (e->key() == Qt::Key_F2) {
+        renameSelected();
+        return;
+    }
+    if (e->key() == Qt::Key_Delete) {
+        QStringList sel = selectedImagePaths();
+        for (const QString &p : sel) QFile::moveToTrash(p);
+        if (!sel.isEmpty()) loadFolder(m_currentFolder);
+        return;
+    }
+    QListView::keyPressEvent(e);
+}
+
+// 慢双击重命名（Windows 资源管理器逻辑）：间隔超过标准双击 + 第二下点在文件名区域
+void ThumbnailGrid::mousePressEvent(QMouseEvent *e)
+{
+    if (e->button() == Qt::LeftButton) {
+        QModelIndex idx = indexAt(e->pos());
+        if (idx.isValid() && selectionModel()->isSelected(idx)) {
+            // 文件名区域（同 delegate 绘制 textRect：图标下方）
+            QRect cell = visualRect(idx);
+            QRect textRect = cell.adjusted(4, *m_thumbSize + 6, -4, -2);
+            qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (textRect.contains(e->pos()) &&
+                m_lastClickRow == idx.row() && now - m_lastClickTime > 500) {
+                m_lastClickRow = -1;
+                renameSelected();
+                return;  // 不传给 QListView（避免打开）
+            }
+            m_lastClickRow = idx.row();
+            m_lastClickTime = now;
+        }
+    }
+    QListView::mousePressEvent(e);
 }
 
 // 拖出：选中项 → 文件 URL（拖到资源管理器 = 复制）

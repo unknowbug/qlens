@@ -92,6 +92,8 @@ protected:
     void wheelEvent(QWheelEvent *e) override;
     void resizeEvent(QResizeEvent *e) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *e) override;
     void dragMoveEvent(QDragMoveEvent *e) override;
     void dropEvent(QDropEvent *e) override;
@@ -105,7 +107,12 @@ private:
     void batchConvert();
     void batchResize();
     void batchRename();
+    void renameSelected();   // 单选=单文件重命名；多选=批量重命名（选中项）
     QStringList allImagePaths() const;
+    QStringList selectedImagePaths() const;
+    // 慢双击重命名跟踪
+    int    m_lastClickRow  = -1;
+    qint64 m_lastClickTime = 0;
     void applyFilter();
 
     TagStore    *m_store = nullptr;

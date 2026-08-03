@@ -15,6 +15,7 @@
 #include <QClipboard>
 #include <QMimeData>
 #include <QUrl>
+#include <QTimer>
 
 // 翻译辅助：msgid=中文，默认中文；.po 覆盖为目标语言
 static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(id)); }
@@ -134,12 +135,13 @@ void ViewerWidget::loadImage(const QString &fp)
 
 void ViewerWidget::decodeAsync(const QString &fp, int idx)
 {
+    // 预缩放上限：至少 1024（首次打开窗口尺寸未就绪时不会解码出过小图）
     int vp = std::max(m_view->width(), m_view->height()) / 2;
-    if (vp < 64) vp = 1200;
+    if (vp < 1024) vp = 1024;
 
     auto *t = QThread::create([this, fp, vp, idx]() {
         QImageReader r(fp); r.setAutoTransform(true);
-        QSize fs = r.size();
+        QSize fs = r.size();  // 可能无效（某些编码 QImageReader 不报告尺寸）
         if (fs.isValid() && fs.width() > 0 && (fs.width() > vp || fs.height() > vp))
             r.setScaledSize(fs.scaled(vp, vp, Qt::KeepAspectRatio));
         QImage img = r.read();
@@ -148,12 +150,14 @@ void ViewerWidget::decodeAsync(const QString &fp, int idx)
             img = QLensCore::decodeImage(fp);
             if (img.isNull()) return;
         }
+        // 原始尺寸：fs 有效用 fs；无效时 img 是未预缩放的原始解码 → 用 img.size()
+        QSize origSize = (fs.isValid() && fs.width() > 0) ? fs : img.size();
         QPixmap pix = QPixmap::fromImage(img);
         // 二次平滑缩放（setScaledSize 不带抗锯齿）
         if (pix.width() > vp || pix.height() > vp)
             pix = pix.scaled(vp, vp, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
-        QMetaObject::invokeMethod(this, [this, idx, pix]() {
+        QMetaObject::invokeMethod(this, [this, idx, pix, origSize]() {
             if (idx != m_currentIndex) return;
             m_original = pix;
             m_scene->clear();
@@ -172,8 +176,10 @@ void ViewerWidget::decodeAsync(const QString &fp, int idx)
                                  (sr.height() - pix.height()) / 2.0);
             m_view->centerOn(m_pixmapItem);
 
-            m_zoomFactor = (pix.width() < m_view->width() && pix.height() < m_view->height())
-                ? 1.0 : 0.0;
+            // 用「原始尺寸」判断 100%/适配（不受预缩放影响——修复首次打开缩小）
+            QSize real = (origSize.isValid() && origSize.width() > 0) ? origSize : pix.size();
+            m_origSize = real;
+            m_zoomFactor = 0.0;  // 默认适配（fit 分支按原始尺寸决定 100% 或放大）
             updateZoom();
         }, Qt::QueuedConnection);
     });
@@ -198,18 +204,29 @@ void ViewerWidget::navigate(int direction)
 void ViewerWidget::updateZoom()
 {
     if (m_original.isNull() || !m_pixmapItem) return;
+    // 尺寸守卫：viewport 未就绪（首次打开/切页布局未完成）→ 延迟重试
+    // 否则 fitInView 用 0/极小尺寸算出错误缩放（首次打开缩小的根因）
+    int vw = m_view->viewport()->width();
+    int vh = m_view->viewport()->height();
+    if (vw < 50 || vh < 50) {
+        QTimer::singleShot(50, this, [this]() { updateZoom(); });
+        return;
+    }
+    // 原始图是否小于窗口（用原始尺寸判断——预缩放后 pix 变小不影响决策）
+    bool origSmall = m_origSize.isValid() && m_origSize.width() > 0 &&
+        m_origSize.width() < vw && m_origSize.height() < vh;
     if (m_zoomFactor > 0.0) {
         m_view->resetTransform();
         m_view->scale(m_zoomFactor, m_zoomFactor);
         m_view->centerOn(m_pixmapItem);
+    } else if (origSmall) {
+        // 原始图比窗口小 → 100% 原尺寸（不放大）
+        m_view->resetTransform();
+        m_view->centerOn(m_pixmapItem);
     } else {
+        // 原始图比窗口大 → 放大适配到窗口
         QRectF br = m_pixmapItem->sceneBoundingRect();
-        if (br.width() <= m_view->viewport()->width() && br.height() <= m_view->viewport()->height()) {
-            m_view->resetTransform();
-            m_view->centerOn(m_pixmapItem);
-        } else {
-            m_view->fitInView(br, Qt::KeepAspectRatio);
-        }
+        m_view->fitInView(br, Qt::KeepAspectRatio);
     }
     m_view->viewport()->update();  // 强制重绘（缩放/适配后立即生效）
 }

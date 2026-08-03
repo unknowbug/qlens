@@ -45,6 +45,7 @@ private:
     QGraphicsScene      *m_scene  = nullptr;
     QGraphicsPixmapItem *m_pixmapItem = nullptr;
     QPixmap              m_original;
+    QSize                m_origSize;      // 原始图尺寸（预缩放前——100%/适配判断用）
     double               m_zoomFactor  = 0.0;
     QString              m_currentFile;
     QDir                 m_currentDir;
