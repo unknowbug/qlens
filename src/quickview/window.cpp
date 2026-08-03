@@ -32,8 +32,8 @@ bool RendererButtonsVisible();
 int RendererHitTestButton(int x, int y);
 void RendererUpdateHover(int x, int y);
 // 异步解码接口
-bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr, float *outHighRatio);
-void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isHdr, float highRatio);
+bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr, float *outHighRatio, int *outFmt);
+void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isHdr, float highRatio, int fmt);
 int RendererNextRequestId();
 void RendererPan(int dx, int dy);
 void RendererResetPan();
@@ -66,6 +66,7 @@ struct DecodedResult {
     bool isHdr;  // 源是高位深（真 HDR 图）
     int error;   // QLensError（0=成功）
     float highRatio;  // 高光像素比例（亮图降高光）
+    int fmt;     // 0=BGRA8, 1=RGBA16F
 };
 
 // ── GIF 动画状态 ──
@@ -87,16 +88,17 @@ static void RequestLoadAsync(const std::wstring &path, int frame = 0)
         int w = 0, h = 0, rot = 0;
         bool isHdr = false;
         float highRatio = 0.0f;
+        int fmt = 0;
         int err = 0;
         // 先 Query 拿错误分类（失败时 error 有值）
         DecodeInfo qi;
         if (QueryImageInfo(path, qi) && qi.error != QLERR_OK) err = qi.error;
-        bool ok = RendererDecodeToBuffer(path, frame, &pix, &w, &h, &rot, &isHdr, &highRatio);
+        bool ok = RendererDecodeToBuffer(path, frame, &pix, &w, &h, &rot, &isHdr, &highRatio, &fmt);
         // 完成时通知 UI（带 reqId；UI 侧校验是否已过期）
         HWND hw = g_hwnd;
         if (hw) PostMessageW(hw, WM_ASYNC_DECODED, (WPARAM)reqId,
-            ok ? (LPARAM)new DecodedResult{ pix, w, h, rot, isHdr, 0, highRatio }
-               : (LPARAM)new DecodedResult{ nullptr, 0, 0, false, false, err ? err : QLERR_CORRUPT, 0 });
+            ok ? (LPARAM)new DecodedResult{ pix, w, h, rot, isHdr, 0, highRatio, fmt }
+               : (LPARAM)new DecodedResult{ nullptr, 0, 0, false, false, err ? err : QLERR_CORRUPT, 0, 0 });
         else if (pix) delete[] pix;
         if (SUCCEEDED(co)) CoUninitialize();
     }).detach();
@@ -433,7 +435,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         DecodedResult *r = (DecodedResult*)lp;
         if (r && r->pix) {
             g_lastError = 0;
-            RendererCommitImage(r->pix, r->w, r->h, r->rot, r->isHdr, r->highRatio);
+            RendererCommitImage(r->pix, r->w, r->h, r->rot, r->isHdr, r->highRatio, r->fmt);
             InvalidateRect(hwnd, nullptr, TRUE);
             // 动画：若当前帧解码完成且动画在播，安排下一帧
             if (g_animOn && g_animFrames > 1) {

@@ -25,5 +25,6 @@ struct ThumbStrip {
     int hitTest(int x, int y, int winH);
     void scrollTo(int idx, int winW);
     // 把缩略图条像素画进 dst（BGRA，winW*winH*4），底部 THUMB_H 区域
-    void renderToBuffer(unsigned char *dst, int winW, int winH);
+    // is16f=true 时输出 RGBA16F（half，sRGB→线性 scRGB）
+    void renderToBuffer(unsigned char *dst, int winW, int winH, bool is16f = false);
 };

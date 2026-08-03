@@ -19,6 +19,31 @@ extern ThumbStrip g_strip;
 
 using Microsoft::WRL::ComPtr;
 
+// half <-> float（scRGB 线性半精度）——位操作快速版
+static inline float rHalf2Float(unsigned short h) {
+    // half 位布局 → float（scRGB 范围 0-8 无 inf/nan 场景）
+    unsigned sign = (h & 0x8000u) << 16;
+    unsigned exp = (h >> 10) & 0x1Fu, mant = h & 0x3FFu;
+    if (exp == 0) return mant == 0 ? 0.0f
+        : (float)mant * (sign ? -1.0f : 1.0f) * 5.9604645e-8f;  // 次正规
+    unsigned fe = exp - 15 + 127;
+    unsigned b = sign | (fe << 23) | (mant << 13);
+    float f; memcpy(&f, &b, 4);
+    return f;
+}
+static inline unsigned short rFloat2Half(float f) {
+    // float → half（位操作，忽略次正规下溢——scRGB 值 ≥0 不会过小）
+    unsigned b; memcpy(&b, &f, 4);
+    unsigned sign = (b >> 16) & 0x8000u;
+    int e = (int)((b >> 23) & 0xFFu) - 127 + 15;
+    unsigned m = (b >> 13) & 0x3FFu;
+    if (e >= 31) return (unsigned short)(sign | 0x7BFFu);  // 溢出 → inf
+    if (e <= 0) return (unsigned short)sign;               // 下溢 → 0
+    return (unsigned short)(sign | ((unsigned)e << 10) | m);
+}
+static inline float rSrgb2Lin(float s) {
+    return s <= 0.04045f ? s / 12.92f : powf((s + 0.055f) / 1.055f, 2.4f);
+}
 static ComPtr<ID3D11Device> g_dev;
 static ComPtr<ID3D11DeviceContext> g_ctx;
 static ComPtr<IDXGISwapChain> g_swap;
@@ -31,6 +56,7 @@ static int g_rotation = 0;  // 0/1/2/3 = 0/90/180/270 度
 static int g_exifRot = 0;   // EXIF Orientation（自动旋转，渲染时叠加）
 static bool g_isHdrImage = false;  // 源图是高位深（真 HDR 图）
 static float g_highRatio = 0.0f;   // 高光像素比例（>0.8 亮度占比，亮图降高光）
+static int g_pixFmt = 0;           // 0=BGRA8, 1=RGBA16F（scRGB 线性，HDR 直通）
 // 主图平移（放大后拖动查看）
 static int g_panX = 0, g_panY = 0;
 static float g_lastFit = 1.0f;  // 最近一次渲染的 fit 比例（滚轮从适配缩放时用）
@@ -61,6 +87,7 @@ static ComPtr<ID3D11Buffer> g_hdrCB;
 static ComPtr<ID3D11SamplerState> g_hdrSampler;
 static ComPtr<ID3D11ShaderResourceView> g_frameSRV;
 static ComPtr<ID3D11Texture2D> g_frameTex;
+static int g_frameFmt = -1;  // 纹理格式缓存（-1=未创建, 0=R8G8B8A8, 1=R16G16B16A16_FLOAT）
 static ComPtr<ID3D11RasterizerState> g_rsNoCull;
 void RendererResize(int w, int h);
 bool RendererIsHDR() { return g_hdrMode; }
@@ -145,13 +172,13 @@ static float sdr2hdr(float lin) {
 float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     float4 c = tex.Sample(smp, uv);
     if (hdrSource > 0.5) {
-        // UI 区域（缩略图条/按钮）：保持 SDR（0-1 = 0-80nit），不映射峰值
-        if (uiRatio > 0.0f && uv.y > uiRatio) return float4(c.rgb, 1.0);
-        // 主图区域：先 srgb2lin 再映射峰值 + Reinhard 软压缩（逐分量！srgb2lin 是 float 函数）
-        float3 lin = float3(srgb2lin(c.r), srgb2lin(c.g), srgb2lin(c.b));
-        float3 hdr = lin * (peakNit / 80.0);
-        hdr = hdr / (1.0 + hdr * 0.5 / (peakNit / 80.0));
-        return float4(hdr, 1.0);
+        // UI 区域（缩略图条/按钮，uv.y > uiRatio）：sRGB 值增强到峰值（与其他 SDR UI 一致亮度）
+        if (uiRatio > 0.0f && uv.y > uiRatio) {
+            float3 lin = float3(srgb2lin(c.r), srgb2lin(c.g), srgb2lin(c.b));
+            return float4(lin * (peakNit / 80.0), 1.0);
+        }
+        // 主图区域：16F 线性直通（scRGB 1.0=80nit，值已含 HDR 亮度）
+        return float4(c.rgb, 1.0);
     }
     float r = srgb2lin(c.r);
     float g = srgb2lin(c.g);
@@ -214,7 +241,7 @@ void RendererResize(int w, int h)
     if (w <= 0 || h <= 0) return;
     g_w = w; g_h = h;
     g_rtv.Reset();
-    g_frameTex.Reset(); g_frameSRV.Reset();   // 尺寸变了，纹理必须重建（否则 UpdateSubresource 尺寸不匹配）
+    g_frameTex.Reset(); g_frameSRV.Reset(); g_frameFmt = -1;   // 尺寸变了，纹理必须重建（否则 UpdateSubresource 尺寸不匹配）
     if (g_swap) {
         g_swap->ResizeBuffers(2, w, h, g_hdrMode ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM, 0);
         ComPtr<ID3D11Texture2D> back;
@@ -254,20 +281,52 @@ void RendererLoadImage(const std::wstring &path)
 
 // ── 异步解码接口（#12：主图解码移后台线程 + 取消）──
 // 后台线程调用：解码到独立缓冲（不碰渲染状态，线程安全）
-bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr, float *outHighRatio)
+// outFmt: 0=BGRA8, 1=RGBA16F（scRGB 线性，HDR 直通）
+bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr, float *outHighRatio, int *outFmt)
 {
-    if (!outPix || !outW || !outH || !outRot || !outHdr || !outHighRatio) return false;
+    if (!outPix || !outW || !outH || !outRot || !outHdr || !outHighRatio || !outFmt) return false;
     *outPix = nullptr;
     *outHdr = false;
     *outHighRatio = 0.0f;
+    *outFmt = 0;
 
-    // Query：EXIF 旋转 + 失败分类（后台线程安全）
+    // Query：EXIF 旋转 + 失败分类 + 是否 16F（后台线程安全）
     DecodeInfo info;
     int exifRot = 0;
+    bool is16f = false;
     if (QueryImageInfo(path, info)) {
         if (info.error == QLERR_NOT_SUPPORTED) return false;
         exifRot = info.exifRot;
-        *outHdr = (info.format == QLPF_RGBA16F || info.format == QLPF_RGBA32F);
+        is16f = (info.format == QLPF_RGBA16F || info.format == QLPF_RGBA32F);
+        *outHdr = is16f;
+    }
+
+    if (is16f) {
+        // 16F 直通：DecodeImageAny 拿 16F（scRGB 线性），后台线程预转 float 缓冲（w*h*4 float）
+        // 渲染时直接 float 插值（避免每像素 half 转换——拖动流畅）
+        ImageBuffer ib;
+        if (!DecodeImageAny(path, frame, 0, 0, ib)) return false;
+        if (ib.width < 1 || ib.height < 1 || ib.format != QLPF_RGBA16F) {
+            if (ib.freeFn) ib.freeFn(ib.pixels);
+            return false;
+        }
+        float *fp = new float[(size_t)ib.width * ib.height * 4];
+        const unsigned short *sp = (const unsigned short*)ib.pixels;
+        for (int y = 0; y < ib.height; ++y) {
+            const unsigned short *row = (const unsigned short*)(ib.pixels + (size_t)y * ib.stride);
+            float *drow = fp + (size_t)y * ib.width * 4;
+            for (int x = 0; x < ib.width; ++x) {
+                const unsigned short *s = row + x * 4;
+                float *d = drow + x * 4;
+                d[0] = rHalf2Float(s[0]); d[1] = rHalf2Float(s[1]);
+                d[2] = rHalf2Float(s[2]); d[3] = rHalf2Float(s[3]);
+            }
+        }
+        if (ib.freeFn) ib.freeFn(ib.pixels);
+        *outPix = (unsigned char*)fp;
+        *outW = ib.width; *outH = ib.height; *outRot = exifRot;
+        *outFmt = 1;  // 1 = RGBA32F 缓冲（scRGB 线性）
+        return true;
     }
 
     DecodedImage img;
@@ -301,7 +360,8 @@ bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char *
 }
 
 // UI 线程调用：提交解码结果到渲染状态（替换旧图）
-void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isHdr, float highRatio)
+// fmt: 0=BGRA8, 1=RGBA16F（scRGB 线性，HDR 直通）
+void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isHdr, float highRatio, int fmt)
 {
     if (!pix || w < 1 || h < 1) return;
     delete[] g_origPixels;
@@ -310,6 +370,7 @@ void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isH
     g_exifRot = exifRot;
     g_isHdrImage = isHdr;
     g_highRatio = highRatio;
+    g_pixFmt = fmt;
     g_rotation = 0;  // 新图重置手动旋转（Q/E 只对当前图）
     g_panX = 0; g_panY = 0;  // 新图重置平移
     g_scaledCache.clear();   // 新图：清缩放缓存（key 已失效）
@@ -462,7 +523,8 @@ int RendererHitTestButton(int x, int y)
 static void RenderButtonGDI(unsigned char *frame, int winW, int winH,
                             int bx, int by, int bw, int bh,
                             const wchar_t *text, bool hover,
-                            int cornerR = 8, int cornerRY = 8)
+                            int cornerR = 8, int cornerRY = 8,
+                            bool is16f = false)
 {
     HDC screenDC = GetDC(nullptr);
     HDC memDC = CreateCompatibleDC(screenDC);
@@ -519,11 +581,20 @@ static void RenderButtonGDI(unsigned char *frame, int winW, int winH,
             if (fx < 0 || fx >= winW || fy < 0 || fy >= winH) continue;
             unsigned char *src = (unsigned char*)bits + ((size_t)yy * bw + xx) * 4;
             if (src[0] == 0 && src[1] == 0 && src[2] == 0) continue;
-            unsigned char *dst = frame + ((size_t)fy * winW + fx) * 4;
-            dst[0] = (unsigned char)(src[0]*0.6 + dst[0]*0.4);
-            dst[1] = (unsigned char)(src[1]*0.6 + dst[1]*0.4);
-            dst[2] = (unsigned char)(src[2]*0.6 + dst[2]*0.4);
-            dst[3]=255;
+            unsigned char *dst = frame + ((size_t)fy * winW + fx) * (is16f ? 8 : 4);
+            if (is16f) {
+                unsigned short *dh = (unsigned short*)dst;
+                // sRGB BGRA(src) → RGBA 混合（shader UI 统一增强）
+                dh[0] = rFloat2Half((src[2]*0.6f + rHalf2Float(dh[0])*255.0f*0.4f)/255.0f);
+                dh[1] = rFloat2Half((src[1]*0.6f + rHalf2Float(dh[1])*255.0f*0.4f)/255.0f);
+                dh[2] = rFloat2Half((src[0]*0.6f + rHalf2Float(dh[2])*255.0f*0.4f)/255.0f);
+                dh[3] = rFloat2Half(1.0f);
+            } else {
+                dst[0] = (unsigned char)(src[0]*0.6 + dst[0]*0.4);
+                dst[1] = (unsigned char)(src[1]*0.6 + dst[1]*0.4);
+                dst[2] = (unsigned char)(src[2]*0.6 + dst[2]*0.4);
+                dst[3]=255;
+            }
         }
 
     SelectObject(memDC, oldBmp);
@@ -533,7 +604,7 @@ static void RenderButtonGDI(unsigned char *frame, int winW, int winH,
 }
 
 // 绘制按钮到 frame（缩略图条上方居中）
-static void DrawButtons(unsigned char *frame, int winW, int winH)
+static void DrawButtons(unsigned char *frame, int winW, int winH, bool is16f = false)
 {
     // 右上角关闭按钮（常驻，无边框窗口需要）
     // 直接从窗口外切圆弧：圆心在 (winW+40, -40)，半径 80，窗口内区域 = 圆弧切口
@@ -548,11 +619,19 @@ static void DrawButtons(unsigned char *frame, int winW, int winH)
                 if (xx < 0 || xx >= winW || yy < 0 || yy >= winH) continue;
                 float dx = xx + 0.5f - ccx, dy = yy + 0.5f - ccy;
                 if (dx*dx + dy*dy <= cr*cr) {
-                    unsigned char *d = frame + ((size_t)yy * winW + xx) * 4;
-                    d[0] = (unsigned char)((c)*0.7 + d[0]*0.3);
-                    d[1] = (unsigned char)((c)*0.7 + d[1]*0.3);
-                    d[2] = (unsigned char)((c+6)*0.7 + d[2]*0.3);
-                    d[3] = 255;
+                    unsigned char *d = frame + ((size_t)yy * winW + xx) * (is16f ? 8 : 4);
+                    if (is16f) {
+                        unsigned short *dh = (unsigned short*)d;
+                        dh[0] = rFloat2Half(((c+6)*0.7f + rHalf2Float(dh[0])*255.0f*0.3f)/255.0f);
+                        dh[1] = rFloat2Half((c*0.7f + rHalf2Float(dh[1])*255.0f*0.3f)/255.0f);
+                        dh[2] = rFloat2Half((c*0.7f + rHalf2Float(dh[2])*255.0f*0.3f)/255.0f);
+                        dh[3] = rFloat2Half(1.0f);
+                    } else {
+                        d[0] = (unsigned char)((c)*0.7 + d[0]*0.3);
+                        d[1] = (unsigned char)((c)*0.7 + d[1]*0.3);
+                        d[2] = (unsigned char)((c+6)*0.7 + d[2]*0.3);
+                        d[3] = 255;
+                    }
                 }
             }
         // 画 ✕（圆弧内，细线缩小，像关闭符）
@@ -564,11 +643,19 @@ static void DrawButtons(unsigned char *frame, int winW, int winH)
                 if (x < 0 || x >= winW || y < 0 || y >= winH) continue;
                 float dx = x + 0.5f - ccx, dy = y + 0.5f - ccy;
                 if (dx*dx + dy*dy > cr*cr) continue;
-                unsigned char *d = frame + ((size_t)y * winW + x) * 4;
-                d[0]=(unsigned char)(xc*0.6 + d[0]*0.4);
-                d[1]=(unsigned char)(xc*0.6 + d[1]*0.4);
-                d[2]=(unsigned char)(xc*0.6 + d[2]*0.4);
-                d[3]=255;
+                unsigned char *d = frame + ((size_t)y * winW + x) * (is16f ? 8 : 4);
+                if (is16f) {
+                    unsigned short *dh = (unsigned short*)d;
+                    dh[0] = rFloat2Half((xc*0.6f + rHalf2Float(dh[0])*255.0f*0.4f)/255.0f);
+                    dh[1] = rFloat2Half((xc*0.6f + rHalf2Float(dh[1])*255.0f*0.4f)/255.0f);
+                    dh[2] = rFloat2Half((xc*0.6f + rHalf2Float(dh[2])*255.0f*0.4f)/255.0f);
+                    dh[3] = rFloat2Half(1.0f);
+                } else {
+                    d[0]=(unsigned char)(xc*0.6 + d[0]*0.4);
+                    d[1]=(unsigned char)(xc*0.6 + d[1]*0.4);
+                    d[2]=(unsigned char)(xc*0.6 + d[2]*0.4);
+                    d[3]=255;
+                }
             }
         }
     }
@@ -580,13 +667,13 @@ static void DrawButtons(unsigned char *frame, int winW, int winH)
     g_btnMgrX  = cx - 30; g_btnMgrY  = y0;   // Manage 宽60，中心 cx
     g_btnPrevX = cx - 82; g_btnPrevY = y0;   // ◀ 宽44，中心 cx-60
     g_btnNextX = cx + 38; g_btnNextY = y0;   // ▶ 宽44，中心 cx+60
-    RenderButtonGDI(frame, winW, winH, g_btnPrevX, g_btnPrevY, 44, 36, L"\u25C0", g_hoverBtn == 1, 14, 14);
-    RenderButtonGDI(frame, winW, winH, g_btnMgrX,  g_btnMgrY,  60, 36, L"Manage", g_hoverBtn == 3, 14, 14);
-    RenderButtonGDI(frame, winW, winH, g_btnNextX, g_btnNextY, 44, 36, L"\u25B6", g_hoverBtn == 2, 14, 14);
+    RenderButtonGDI(frame, winW, winH, g_btnPrevX, g_btnPrevY, 44, 36, L"\u25C0", g_hoverBtn == 1, 14, 14, is16f);
+    RenderButtonGDI(frame, winW, winH, g_btnMgrX,  g_btnMgrY,  60, 36, L"Manage", g_hoverBtn == 3, 14, 14, is16f);
+    RenderButtonGDI(frame, winW, winH, g_btnNextX, g_btnNextY, 44, 36, L"\u25B6", g_hoverBtn == 2, 14, 14, is16f);
 }
 
 // 绘制当前文件名到 frame（缩略图条上方靠右，半透明黑底白字）
-static void DrawFilename(unsigned char *frame, int winW, int winH, const wchar_t *name)
+static void DrawFilename(unsigned char *frame, int winW, int winH, const wchar_t *name, bool is16f = false)
 {
     if (!name || !name[0]) return;
     HDC screenDC = GetDC(nullptr);
@@ -634,11 +721,19 @@ static void DrawFilename(unsigned char *frame, int winW, int winH, const wchar_t
             int fx = bx + xx, fy = by + yy;
             if (fx < 0 || fx >= winW || fy < 0 || fy >= winH) continue;
             unsigned char *src = (unsigned char*)bits + ((size_t)yy * bw + xx) * 4;
-            unsigned char *dst = frame + ((size_t)fy * winW + fx) * 4;
-            dst[0] = (unsigned char)(src[0]*0.55 + dst[0]*0.45);
-            dst[1] = (unsigned char)(src[1]*0.55 + dst[1]*0.45);
-            dst[2] = (unsigned char)(src[2]*0.55 + dst[2]*0.45);
-            dst[3] = 255;
+            unsigned char *dst = frame + ((size_t)fy * winW + fx) * (is16f ? 8 : 4);
+            if (is16f) {
+                unsigned short *dh = (unsigned short*)dst;
+                dh[0] = rFloat2Half((src[2]*0.55f + rHalf2Float(dh[0])*255.0f*0.45f)/255.0f);
+                dh[1] = rFloat2Half((src[1]*0.55f + rHalf2Float(dh[1])*255.0f*0.45f)/255.0f);
+                dh[2] = rFloat2Half((src[0]*0.55f + rHalf2Float(dh[2])*255.0f*0.45f)/255.0f);
+                dh[3] = rFloat2Half(1.0f);
+            } else {
+                dst[0] = (unsigned char)(src[0]*0.55 + dst[0]*0.45);
+                dst[1] = (unsigned char)(src[1]*0.55 + dst[1]*0.45);
+                dst[2] = (unsigned char)(src[2]*0.55 + dst[2]*0.45);
+                dst[3] = 255;
+            }
         }
 
     SelectObject(memDC, oldBmp);
@@ -657,6 +752,7 @@ void RendererRender()
 
     // 提前声明（确保 HDR/SDR 分支都可见）
     std::vector<unsigned char> frame;
+    std::vector<unsigned short> frame16;  // 16F 直通路径（RGBA16F half，scRGB 线性）
     D3D11_TEXTURE2D_DESC sd = {};
     ComPtr<ID3D11Texture2D> fullTex;
     ComPtr<ID3D11Texture2D> back;
@@ -678,7 +774,8 @@ void RendererRender()
 
         // 方案 C：按需渲染可视区——直接对窗口像素采样原图（无 scaled 缓存）
         // 循环次数 = 窗口像素（恒定），与图尺寸/缩放倍率无关
-        frame.assign((size_t)g_w * g_h * 4, 0);
+        if (g_pixFmt == 1) frame16.assign((size_t)g_w * g_h * 4, 0);
+        else frame.assign((size_t)g_w * g_h * 4, 0);
         // 显示比例：sw/sh = 图显示尺寸（可能远超窗口，但只渲染可视区）
         float dispS = s;
         int dispWpx = (int)(dispW * dispS), dispHpx = (int)(dispH * dispS);
@@ -709,26 +806,33 @@ void RendererRender()
                 int y0 = (int)sy; if (y0 >= g_imgH) y0 = g_imgH - 1;
                 int y1 = y0 + 1; if (y1 >= g_imgH) y1 = g_imgH - 1;
                 float wxw = sx - x0, wyw = sy - y0;
-                const unsigned char *r0 = g_origPixels + (size_t)y0 * g_imgW * 4;
-                const unsigned char *r1 = g_origPixels + (size_t)y1 * g_imgW * 4;
-                unsigned char *d = &rowDst[(size_t)wx * 4];
-                for (int ch = 0; ch < 3; ++ch) {
-                    float top = r0[x0*4+ch]*(1-wxw) + r0[x1*4+ch]*wxw;
-                    float bot = r1[x0*4+ch]*(1-wxw) + r1[x1*4+ch]*wxw;
-                    d[ch] = (unsigned char)(top*(1-wyw) + bot*wyw);
+                if (g_pixFmt == 1) {
+                    // 16F 主图采样（float 缓冲，scRGB 线性——直接插值，无 half 转换）
+                    const float *r0f = (const float*)(g_origPixels + (size_t)y0 * g_imgW * 16) + x0 * 4;
+                    const float *r1f = (const float*)(g_origPixels + (size_t)y1 * g_imgW * 16) + x0 * 4;
+                    unsigned short *dh = &frame16[((size_t)wy * g_w + wx) * 4];
+                    for (int ch = 0; ch < 3; ++ch) {
+                        float top = r0f[ch]*(1-wxw) + r0f[4+ch]*wxw;
+                        float bot = r1f[ch]*(1-wxw) + r1f[4+ch]*wxw;
+                        dh[ch] = rFloat2Half(top*(1-wyw) + bot*wyw);
+                    }
+                    dh[3] = rFloat2Half(1.0f);
+                } else {
+                    const unsigned char *r0 = g_origPixels + (size_t)y0 * g_imgW * 4;
+                    const unsigned char *r1 = g_origPixels + (size_t)y1 * g_imgW * 4;
+                    unsigned char *d = &rowDst[(size_t)wx * 4];
+                    for (int ch = 0; ch < 3; ++ch) {
+                        float top = r0[x0*4+ch]*(1-wxw) + r0[x1*4+ch]*wxw;
+                        float bot = r1[x0*4+ch]*(1-wxw) + r1[x1*4+ch]*wxw;
+                        d[ch] = (unsigned char)(top*(1-wyw) + bot*wyw);
+                    }
+                    d[3] = 255;
                 }
-                d[3] = 255;
             }
         }
-        g_strip.renderToBuffer(frame.data(), g_w, g_h);        { static int dbg = 0; if (dbg < 2) { FILE*f=fopen("E:/PYTHON/qlens/build-qv/crash.log","a"); if(f){ fprintf(f,"AFTER_STRIP winH=%d THUMB_H=%d\n", g_h, THUMB_H);
-            auto px = [&](int x, int y) { const unsigned char *p = &frame[((size_t)y*g_w+x)*4]; return (int)p[2]; };
-            fprintf(f, "  y=743: x0=%d x500=%d x1000=%d x1500=%d\n", px(0,743), px(500,743), px(1000,743), px(1500,743));
-            fprintf(f, "  y=1000: x0=%d x500=%d x1000=%d x1500=%d\n", px(0,1000), px(500,1000), px(1000,1000), px(1500,1000));
-            fprintf(f, "  y=1300: x0=%d x500=%d x1000=%d x1500=%d\n", px(0,1300), px(500,1300), px(1000,1300), px(1500,1300));
-            fprintf(f, "  y=1488(缩略图条): x0=%d x500=%d x1000=%d x1500=%d\n", px(0,1488), px(500,1488), px(1000,1488), px(1500,1488));
-            fclose(f);} dbg++; } }
+        g_strip.renderToBuffer(g_pixFmt == 1 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, g_pixFmt == 1);
 
-        DrawButtons(frame.data(), g_w, g_h);
+        DrawButtons(g_pixFmt == 1 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, g_pixFmt == 1);
         // 文件名（缩略图条上方靠右）
         {
             extern std::wstring g_curFile;
@@ -738,7 +842,7 @@ void RendererRender()
                 const wchar_t *sl2 = wcsrchr(n, L'/');
                 if (sl2 && (!sl || sl2 > sl)) sl = sl2;
                 if (sl) n = sl + 1;
-                DrawFilename(frame.data(), g_w, g_h, n);
+                DrawFilename(g_pixFmt == 1 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, n, g_pixFmt == 1);
             }
         }
 
@@ -747,26 +851,43 @@ void RendererRender()
         sd.SampleDesc.Count = 1;
 
         if (g_hdrMode) {
-            // HDR：frame(BGRA8) → RGBA 纹理 → shader 渲染（sRGB→linear→增强→PQ）
-            // 转 RGBA（交换 B/R，D3D 纹理按 RGBA 解释）
-            std::vector<unsigned char> rgba(frame.size());
-            for (size_t i = 0; i < frame.size(); i += 4) {
-                rgba[i+0] = frame[i+2];  // R
-                rgba[i+1] = frame[i+1];  // G
-                rgba[i+2] = frame[i];    // B
-                rgba[i+3] = frame[i+3];
+            if (g_pixFmt == 1) {
+                // 16F 直通：frame16（half RGBA scRGB 线性）→ R16G16B16A16_FLOAT 纹理
+                D3D11_TEXTURE2D_DESC td16 = {};
+                td16.Width = g_w; td16.Height = g_h; td16.MipLevels = 1; td16.ArraySize = 1;
+                td16.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; td16.SampleDesc.Count = 1;
+                td16.Usage = D3D11_USAGE_DEFAULT; td16.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                if (!g_frameTex || g_frameFmt != 1) {
+                    g_frameTex.Reset(); g_frameSRV.Reset();
+                    g_dev->CreateTexture2D(&td16, nullptr, &g_frameTex);
+                    g_dev->CreateShaderResourceView(g_frameTex.Get(), nullptr, &g_frameSRV);
+                    g_frameFmt = 1;
+                }
+                if (g_frameTex)
+                    g_ctx->UpdateSubresource(g_frameTex.Get(), 0, nullptr, frame16.data(), (UINT)(g_w*8), 0);
+            } else {
+                // 8bit HDR：frame(BGRA8) → RGBA 纹理（sRGB→linear→增强→PQ）
+                std::vector<unsigned char> rgba(frame.size());
+                for (size_t i = 0; i < frame.size(); i += 4) {
+                    rgba[i+0] = frame[i+2];  // R
+                    rgba[i+1] = frame[i+1];  // G
+                    rgba[i+2] = frame[i];    // B
+                    rgba[i+3] = frame[i+3];
+                }
+                D3D11_TEXTURE2D_DESC td = {};
+                td.Width = g_w; td.Height = g_h; td.MipLevels = 1; td.ArraySize = 1;
+                td.Format = DXGI_FORMAT_R8G8B8A8_UNORM; td.SampleDesc.Count = 1;
+                td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                if (!g_frameTex || g_frameFmt != 0) {
+                    g_frameTex.Reset(); g_frameSRV.Reset();
+                    g_dev->CreateTexture2D(&td, nullptr, &g_frameTex);
+                    g_dev->CreateShaderResourceView(g_frameTex.Get(), nullptr, &g_frameSRV);
+                    g_frameFmt = 0;
+                }
+                // 每帧 UpdateSubresource（避免重建/释放竞态）
+                if (g_frameTex)
+                    g_ctx->UpdateSubresource(g_frameTex.Get(), 0, nullptr, rgba.data(), (UINT)(g_w*4), 0);
             }
-            D3D11_TEXTURE2D_DESC td = {};
-            td.Width = g_w; td.Height = g_h; td.MipLevels = 1; td.ArraySize = 1;
-            td.Format = DXGI_FORMAT_R8G8B8A8_UNORM; td.SampleDesc.Count = 1;
-            td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-            if (!g_frameTex) {
-                g_dev->CreateTexture2D(&td, nullptr, &g_frameTex);
-                g_dev->CreateShaderResourceView(g_frameTex.Get(), nullptr, &g_frameSRV);
-            }
-            // 每帧 UpdateSubresource（避免重建/释放竞态——GPU 用旧纹理时 CPU 释放=叠影）
-            if (g_frameTex)
-                g_ctx->UpdateSubresource(g_frameTex.Get(), 0, nullptr, rgba.data(), (UINT)(g_w*4), 0);
             { HRESULT h1 = g_frameTex ? S_OK : E_FAIL;
               HRESULT h2 = g_frameSRV ? S_OK : E_FAIL;
               if (SUCCEEDED(h1) && SUCCEEDED(h2) && g_hdrVS && g_hdrPS) {

@@ -244,7 +244,7 @@ bool DecodeImageFile(const std::wstring &path, DecodedImage &out, int frame)
             return 1.055f * powf(v, 1.0f / 2.4f) - 0.055f;
         };
         // Reinhard tone map：0-1 保持线性（SDR 范围），>1 的 HDR 部分压缩到 [1, 峰值]
-        // 避免整体压灰（0-1 的值不该被压）
+        // 用于缩略图/兼容路径；主图 16F 直通不经过此转换
         auto toneMap = [](float lin) -> float {
             if (lin <= 0.0f) return 0.0f;
             if (lin <= 1.0f) return lin;          // SDR 范围：线性保持
