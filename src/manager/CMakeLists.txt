@@ -1,4 +1,5 @@
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)   # qlens.qrc（app 图标 + 格式图标资源）编译进 exe
 
 add_executable(qlens_manager WIN32
     main.cpp
