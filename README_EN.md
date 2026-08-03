@@ -161,4 +161,11 @@ Dependencies: Qt 6 (Core/Gui/Widgets/Sql), LibRaw, LCMS2 (auto-detected by CMake
 
 ## License
 
-Apache-2.0
+QLens uses a **dual license**:
+
+- **QuickView viewer** (`src/quickview/`): **Apache-2.0** — free and open source
+- **Manager** (`src/manager/`, `src/core/`, `src/mcp/`): **Business Source License 1.1** — free for personal/non-commercial use; commercial use requires a license
+
+**The image tagging protocol (`qltag.db` format + `docs/`) is fully open**, not restricted by the licenses above — you can build your own tools compatible with the protocol.
+
+See [LICENSE](LICENSE).

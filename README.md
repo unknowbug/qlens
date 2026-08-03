@@ -148,4 +148,11 @@ cmake --build build
 
 ## 许可
 
-Apache-2.0
+QLens 采用**双许可**：
+
+- **QuickView 看图器**（`src/quickview/`）：**Apache-2.0** —— 免费开源
+- **Manager 标签管理器**（`src/manager/`、`src/core/`、`src/mcp/`）：**Business Source License 1.1** —— 个人/非商业免费，商业用途需授权
+
+**图片标签协议（`qltag.db` 格式 + `docs/`）完全公开**，不受许可限制——你可以自建工具兼容该协议。
+
+详见 [LICENSE](LICENSE)。

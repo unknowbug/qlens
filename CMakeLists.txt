@@ -17,5 +17,4 @@ configure_file(${CMAKE_SOURCE_DIR}/qlens.rc ${CMAKE_BINARY_DIR}/qlens.rc @ONLY)
 set(QLENS_RC ${CMAKE_BINARY_DIR}/qlens.rc)
 
 add_subdirectory(src/core)
-add_subdirectory(src/quick)
 add_subdirectory(src/manager)

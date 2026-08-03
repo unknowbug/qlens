@@ -1,0 +1,51 @@
+Business Source License 1.1
+
+License text copyright (c) 2017 MariaDB Corporation Ab, All Rights Reserved.
+"Business Source License" is a trademark of MariaDB Corporation Ab.
+
+-----------------------------------------------------------------------------
+
+Parameters
+
+Licensor:             NDark (unknowbug)
+Licensed Work:        QLens Manager（src/manager、src/core、src/mcp）
+Additional Use Grant: 个人和非商业用途免费使用、复制、修改和分发；商业用途（包括但不限于企业/组织内部批量部署、商业服务交付、以 QLens Manager 能力对外收费）需获得 Licensor 书面授权。
+Change Date:          2030-01-01
+Change License:       Apache License, Version 2.0
+
+-----------------------------------------------------------------------------
+
+Terms
+
+The Licensor hereby grants you the right to copy, modify, create derivative
+works, redistribute, and make non-production use of the Licensed Work. The
+Licensor may make an Additional Use Grant, above, permitting limited
+production use.
+
+Effective on the Change Date, or the fourth anniversary of the first publicly
+available distribution of a specific version of the Licensed Work
+whichever comes first, the Licensor hereby grants you rights under the terms
+of the Change License, and the rights granted under the Additional Use
+Grant, if any, will terminate.
+
+The "Business Source License" is a license for use and redistribution of
+the Licensed Work in a manner consistent with the terms of the License, and
+the copyright holder of the Licensed Work may, at its option, release the
+Licensed Work under the Change License.
+
+You may not use the Licensed Work except in compliance with the License.
+Notwithstanding anything else in the License, you may use the Licensed Work
+in accordance with the terms of the license agreements you have entered
+into with the Licensor.
+
+You may not sublicense the Licensed Work. You must provide a copy of this
+License and the following notice with each copy or derivative work of the
+Licensed Work:
+
+  © 2026 NDark (unknowbug). Licensed under the Business Source License 1.1.
+  You may use this file except in compliance with the License. You may
+  obtain a copy of the License at https://github.com/unknowbug/qlens
+
+Any of the above conditions can be waived if you get permission from the
+Licensor. Nothing in this License impairs or restricts the author's moral
+rights.
