@@ -9,6 +9,7 @@ LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
 bool CreateMainWindow(HINSTANCE);
 extern HWND g_mainHwnd;
 void LoadFileByPath(HWND, const wchar_t*);
+void SetStartMonitorIndex(int);
 void RegisterFileAssociations();
 
 static LONG WINAPI CrashFilter(EXCEPTION_POINTERS *ep)
@@ -46,8 +47,25 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
     // 注册系统默认看图器（每次启动刷新，HKCU 无需管理员）
     RegisterFileAssociations();
 
-    // 命令行传图则打开
-    if (pCmdLine && *pCmdLine) LoadFileByPath(g_mainHwnd, pCmdLine);
+    // 命令行参数：图片路径 + --monitor N（指定启动显示器）
+    int monitorIdx = -1;
+    wchar_t imgPath[MAX_PATH] = {};
+    if (pCmdLine && *pCmdLine) {
+        int argc = 0;
+        LPWSTR *argv = CommandLineToArgvW(pCmdLine, &argc);
+        if (argv) {
+            for (int i = 0; i < argc; ++i) {
+                if (wcscmp(argv[i], L"--monitor") == 0 && i + 1 < argc)
+                    monitorIdx = _wtoi(argv[i + 1]);
+                else if (!imgPath[0] && argv[i][0] != L'-')
+                    wcsncpy_s(imgPath, argv[i], MAX_PATH - 1);
+            }
+            LocalFree(argv);
+        }
+    }
+    if (monitorIdx >= 0) SetStartMonitorIndex(monitorIdx);
+
+    if (imgPath[0]) LoadFileByPath(g_mainHwnd, imgPath);
 
     MSG m; while (GetMessageW(&m, 0, 0, 0)) { TranslateMessage(&m); DispatchMessageW(&m); }
     return 0;

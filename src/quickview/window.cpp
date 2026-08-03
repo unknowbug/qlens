@@ -48,6 +48,8 @@ ThumbStrip g_strip;
 static void GenerateThumbs();
 std::wstring g_curFile;
 static HWND g_hwnd = nullptr;
+static int g_monitorIdx = -1;  // 启动显示器索引（-1 = 默认/主屏）；--monitor N 指定
+void SetStartMonitorIndex(int idx) { g_monitorIdx = idx; }
 static std::vector<std::wstring> g_files;
 static int g_curIdx = -1;
 static const wchar_t *IMG_EXTS[] = { L".jpg",L".jpeg",L".png",L".webp",L".bmp",L".gif",L".tif",L".tiff",L".svg",L".heic",L".heif",L".avif",L".jxr",L".wdp" };
@@ -676,7 +678,22 @@ bool CreateMainWindow(HINSTANCE hInst)
     DragAcceptFiles(g_mainHwnd, TRUE);
     // 默认最大化到工作区（不含任务栏）
     RECT wa;
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
+    if (g_monitorIdx >= 0) {
+        // 指定显示器（--monitor N）：枚举找第 N 个的工作区
+        struct MonSearch { int target; int idx; RECT *out; } ms = { g_monitorIdx, 0, &wa };
+        EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR h, HDC, LPRECT, LPARAM lp) -> BOOL {
+            MonSearch *ms = (MonSearch*)lp;
+            if (ms->idx == ms->target) {
+                MONITORINFO m = { sizeof(m) };
+                if (GetMonitorInfoW(h, &m)) *ms->out = m.rcWork;
+                return FALSE;
+            }
+            ms->idx++;
+            return TRUE;
+        }, (LPARAM)&ms);
+    } else {
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
+    }
     SetWindowPos(g_mainHwnd, nullptr, wa.left, wa.top,
         wa.right - wa.left, wa.bottom - wa.top, SWP_NOZORDER);
     SetFocus(g_mainHwnd);
