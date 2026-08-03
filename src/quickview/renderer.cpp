@@ -231,7 +231,7 @@ void RendererLoadImage(const std::wstring &path)
 
 // ── 异步解码接口（#12：主图解码移后台线程 + 取消）──
 // 后台线程调用：解码到独立缓冲（不碰渲染状态，线程安全）
-bool RendererDecodeToBuffer(const std::wstring &path, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr)
+bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr)
 {
     if (!outPix || !outW || !outH || !outRot || !outHdr) return false;
     *outPix = nullptr;
@@ -247,7 +247,7 @@ bool RendererDecodeToBuffer(const std::wstring &path, unsigned char **outPix, in
     }
 
     DecodedImage img;
-    if (!DecodeImageFile(path, img)) return false;
+    if (!DecodeImageFile(path, img, frame)) return false;
     if (img.width < 1 || img.height < 1) return false;
 
     // 紧凑 BGRA（去 stride 空隙）

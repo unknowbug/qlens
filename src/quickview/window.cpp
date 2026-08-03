@@ -32,7 +32,7 @@ bool RendererButtonsVisible();
 int RendererHitTestButton(int x, int y);
 void RendererUpdateHover(int x, int y);
 // 异步解码接口
-bool RendererDecodeToBuffer(const std::wstring &path, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr);
+bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr);
 void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isHdr);
 int RendererNextRequestId();
 void RendererRotate(int steps);
@@ -52,6 +52,8 @@ static std::atomic<int> g_pendingReqId{0};
 static const UINT WM_ASYNC_DECODED = WM_APP + 1;
 // 最近一次解码错误（0=无；显示在画面中央）
 static int g_lastError = 0;
+// GIF 动画检测（前向声明）
+static void StartAnimationIfGif(const std::wstring &path);
 // 异步解码结果（跨线程传递）
 struct DecodedResult {
     unsigned char *pix;
@@ -60,12 +62,19 @@ struct DecodedResult {
     int error;   // QLensError（0=成功）
 };
 
+// ── GIF 动画状态 ──
+static int g_animFrames = 0;       // 总帧数（>1 = 动画）
+static int g_animCur = 0;          // 当前帧
+static int g_animDelays[256];      // 每帧 delay(ms)
+static bool g_animOn = false;      // 动画播放中
+static bool g_animPending = false; // 有帧解码请求在途
+
 // 异步加载主图：后台线程解码，完成 PostMessage 通知 UI
-static void RequestLoadAsync(const std::wstring &path)
+static void RequestLoadAsync(const std::wstring &path, int frame = 0)
 {
     int reqId = RendererNextRequestId();
     g_pendingReqId.store(reqId);
-    std::thread([path, reqId]() {
+    std::thread([path, frame, reqId]() {
         // 后台线程必须初始化 COM（WIC 的 CoCreateInstance 依赖）
         HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         unsigned char *pix = nullptr;
@@ -75,7 +84,7 @@ static void RequestLoadAsync(const std::wstring &path)
         // 先 Query 拿错误分类（失败时 error 有值）
         DecodeInfo qi;
         if (QueryImageInfo(path, qi) && qi.error != QLERR_OK) err = qi.error;
-        bool ok = RendererDecodeToBuffer(path, &pix, &w, &h, &rot, &isHdr);
+        bool ok = RendererDecodeToBuffer(path, frame, &pix, &w, &h, &rot, &isHdr);
         // 完成时通知 UI（带 reqId；UI 侧校验是否已过期）
         HWND hw = g_hwnd;
         if (hw) PostMessageW(hw, WM_ASYNC_DECODED, (WPARAM)reqId,
@@ -84,6 +93,23 @@ static void RequestLoadAsync(const std::wstring &path)
         else if (pix) delete[] pix;
         if (SUCCEEDED(co)) CoUninitialize();
     }).detach();
+}
+// 检测是否为多帧动画（GIF 等），是则启动播放
+static void StartAnimationIfGif(const std::wstring &path)
+{
+    g_animOn = false;
+    g_animPending = false;
+    g_animFrames = 0;
+    g_animCur = 0;
+    DecodeInfo qi;
+    if (QueryImageInfo(path, qi) && qi.frames > 1) {
+        g_animFrames = qi.frames;
+        for (int i = 0; i < qi.frameDelayCount && i < 256; ++i)
+            g_animDelays[i] = qi.frameDelays[i];
+        if (g_animDelays[0] <= 0) g_animDelays[0] = 100;
+        g_animOn = true;
+        g_animPending = true;  // 首帧已由 RequestLoadAsync 解码，完成后安排下一帧
+    }
 }
 static void LoadDirFiles(const std::wstring &path)
 {
@@ -121,6 +147,7 @@ void LoadFileByPath(HWND hwnd, const wchar_t *path)
     g_curFile = path;
     LoadDirFiles(path);
     RendererEnsureInit(g_hwnd);
+    StartAnimationIfGif(g_curFile);
     RequestLoadAsync(g_curFile);
     GenerateThumbs();
     if (g_hwnd) InvalidateRect(g_hwnd, nullptr, TRUE);
@@ -281,6 +308,7 @@ static void NavTo(int idx, HWND hwnd)
     if (idx < 0 || idx >= (int)g_files.size()) return;
     g_curIdx = idx;
     g_curFile = g_files[idx];
+    StartAnimationIfGif(g_curFile);
     RequestLoadAsync(g_curFile);
     // 缩略图异步生成：仅更新高亮 + 滚动（不同步解码，避免卡 UI）
     g_strip.curIdx = idx;
@@ -346,6 +374,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             g_lastError = 0;
             RendererCommitImage(r->pix, r->w, r->h, r->rot, r->isHdr);
             InvalidateRect(hwnd, nullptr, TRUE);
+            // 动画：若当前帧解码完成且动画在播，安排下一帧
+            if (g_animOn && g_animFrames > 1) {
+                g_animPending = false;
+                int delay = (g_animCur < g_animFrames && g_animDelays[g_animCur] > 0)
+                          ? g_animDelays[g_animCur] : 100;
+                SetTimer(hwnd, 2, delay, nullptr);  // 定时切下一帧
+            }
         } else if (r) {
             // 解码失败：显示错误提示
             g_lastError = r->error;
@@ -492,6 +527,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             if (RendererButtonsVisible()) {
                 RendererShowButtons(false);
                 InvalidateRect(hwnd, nullptr, TRUE);
+            }
+        } else if (wp == 2) {
+            // GIF 动画：切下一帧
+            KillTimer(hwnd, 2);
+            if (g_animOn && g_animFrames > 1 && !g_animPending) {
+                g_animCur = (g_animCur + 1) % g_animFrames;
+                g_animPending = true;
+                RequestLoadAsync(g_curFile, g_animCur);
             }
         }
         return 0;

@@ -57,6 +57,35 @@ static bool WicQuery(const std::wstring &path, DecodeInfo &info)
     if (nFrames < 1) { info.error = QLERR_CORRUPT; return false; }
     info.frames = (int)nFrames;
 
+    // GIF 动画元数据：每帧 delay（GCE）/ 循环次数（NETSCAPE）
+    if (nFrames > 1) {
+        info.frameDelayCount = (int)min(nFrames, 256u);
+        for (UINT i = 0; i < (UINT)info.frameDelayCount; ++i) {
+            ComPtr<IWICBitmapFrameDecode> fr;
+            if (SUCCEEDED(decoder->GetFrame(i, &fr)) && fr) {
+                ComPtr<IWICMetadataQueryReader> mr;
+                if (SUCCEEDED(fr->GetMetadataQueryReader(&mr)) && mr) {
+                    PROPVARIANT v; PropVariantInit(&v);
+                    // GIF 帧 delay 单位 1/100s
+                    if (SUCCEEDED(mr->GetMetadataByName(L"/grctlext/Delay", &v)) && v.vt == VT_UI2)
+                        info.frameDelays[info.frameDelayCount > (int)i ? i : info.frameDelayCount-1] = v.uiVal * 10;
+                    PropVariantClear(&v);
+                }
+            }
+        }
+        // loopCount：NETSCAPE2.0 扩展
+        ComPtr<IWICMetadataQueryReader> mr;
+        if (SUCCEEDED(decoder->GetMetadataQueryReader(&mr)) && mr) {
+            PROPVARIANT v; PropVariantInit(&v);
+            if (SUCCEEDED(mr->GetMetadataByName(L"/appext/Data", &v)) && v.vt == (VT_UI1 | VT_VECTOR) && v.caub.cElems >= 3) {
+                // NETSCAPE2.0: 数据字节 [1] 循环数低位 [2] 高位；0=无限
+                unsigned loops = (unsigned)v.caub.pElems[1] | ((unsigned)v.caub.pElems[2] << 8);
+                info.loopCount = (loops == 0) ? 0 : (int)loops;
+            }
+            PropVariantClear(&v);
+        }
+    }
+
     ComPtr<IWICBitmapFrameDecode> frame;
     if (FAILED(decoder->GetFrame(0, &frame)) || !frame) { info.error = QLERR_CORRUPT; return false; }
 
@@ -187,11 +216,11 @@ bool DecodeImageAny(const std::wstring &path, int frame, int targetW, int target
     return true;
 }
 
-// ── 兼容旧接口：全尺寸 BGRA8 解码（内部走新接口 + 转换）──
-bool DecodeImageFile(const std::wstring &path, DecodedImage &out)
+// ── 兼容旧接口：全尺寸 BGRA8 解码（内部走新接口 + 转换，frame 指定多帧格式帧）──
+bool DecodeImageFile(const std::wstring &path, DecodedImage &out, int frame)
 {
     ImageBuffer ib = {};
-    if (!DecodeImageAny(path, 0, 0, 0, ib)) return false;
+    if (!DecodeImageAny(path, frame, 0, 0, ib)) return false;
     // 16F → 转 BGRA8（HDR→SDR tone map，保留高光）
     if (ib.format == QLPF_RGBA16F) {
         out.width = ib.width; out.height = ib.height;
