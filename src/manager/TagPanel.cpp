@@ -57,12 +57,14 @@ TagPanel::TagPanel(TagStore *store, QWidget *parent)
     ll->setSpacing(0);
     auto *addLabel = new QLabel(T(L"添加标签"), lower);
     addLabel->setStyleSheet("color:#888; font-size:11px; padding:4px;");
+    addLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);  // 标题不拉伸
     ll->addWidget(addLabel);
 
     m_tagInput = new QLineEdit(lower);
     m_tagInput->setPlaceholderText(T(L"输入标签（用 , 分隔）+ 回车..."));
     m_tagInput->setStyleSheet("background:#222; color:#ccc; border:1px solid #333; padding:4px;");
     m_tagInput->setAlignment(Qt::AlignLeft);  // 提示文字左上角
+    m_tagInput->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);  // 占满剩余高度
     ll->addWidget(m_tagInput, 1);
 
     splitter->addWidget(upper);
