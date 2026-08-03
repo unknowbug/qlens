@@ -48,7 +48,7 @@ std::wstring g_curFile;
 static HWND g_hwnd = nullptr;
 static std::vector<std::wstring> g_files;
 static int g_curIdx = -1;
-static const wchar_t *IMG_EXTS[] = { L".jpg",L".jpeg",L".png",L".webp",L".bmp",L".gif",L".tif",L".tiff",L".svg" };
+static const wchar_t *IMG_EXTS[] = { L".jpg",L".jpeg",L".png",L".webp",L".bmp",L".gif",L".tif",L".tiff",L".svg",L".heic",L".heif",L".avif" };
 // 异步解码：最新请求 ID（取消令牌）
 static std::atomic<int> g_pendingReqId{0};
 static const UINT WM_ASYNC_DECODED = WM_APP + 1;
@@ -131,12 +131,19 @@ static void LoadDirFiles(const std::wstring &path)
     do {
         if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
             std::wstring name = fd.cFileName;
-            for (auto ext : IMG_EXTS) {
-                if (_wcsicmp(PathFindExtensionW(name.c_str()), ext) == 0) {
-                    g_files.push_back(std::wstring(dir) + L"\\" + name);
-                    break;
-                }
+            // 内置扩展
+            bool isImg = false;
+            const wchar_t *ext = PathFindExtensionW(name.c_str());
+            for (auto e : IMG_EXTS) {
+                if (_wcsicmp(ext, e) == 0) { isImg = true; break; }
             }
+            // 插件扩展（未来插件注册的格式自动纳入）
+            if (!isImg && ext && *ext) {
+                std::wstring extLower = ext + 1;  // 去点
+                for (auto &ch : extLower) if (ch >= L'A' && ch <= L'Z') ch += 32;
+                if (QLensPlugins::FindDecoder(extLower)) isImg = true;
+            }
+            if (isImg) g_files.push_back(std::wstring(dir) + L"\\" + name);
         }
     } while (FindNextFileW(hFind, &fd));
     FindClose(hFind);
