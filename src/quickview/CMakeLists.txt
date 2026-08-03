@@ -25,7 +25,3 @@ add_executable(qlens_quickview WIN32
 )
 target_link_libraries(qlens_quickview PRIVATE qlens_decode d3d11 dxgi dwmapi d3dcompiler comdlg32)
 target_compile_options(qlens_quickview PRIVATE /utf-8)
-
-# 最小窗口测试（验证环境 Win32 窗口支持）
-add_executable(qlens_minimal WIN32 minimal.cpp)
-target_link_libraries(qlens_minimal PRIVATE user32)

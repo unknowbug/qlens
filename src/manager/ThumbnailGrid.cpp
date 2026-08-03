@@ -1,6 +1,7 @@
 #include "ThumbnailGrid.h"
 #include <QDir>
 #include <QImageReader>
+#include "decode_api.h"
 #include <QFile>
 #include <QtEndian>
 #include <QThreadPool>
@@ -187,7 +188,12 @@ static QImage loadImageNoIcc(const QString &path, int maxPx)
     QSize orig = rd.size();
     if (orig.isValid() && orig.width() > 0 && maxPx > 0)
         rd.setScaledSize(orig.scaled(maxPx, maxPx, Qt::KeepAspectRatio));
-    return rd.read();
+    QImage img = rd.read();
+    if (!img.isNull()) return img;
+
+    // QImageReader 失败（SVG/插件格式等）→ 回退到 qlens_decode 统一解码
+    // 需要 plugins 已加载（SVG 等），Manager 启动时加载
+    return QLensCore::decodeImage(path, maxPx);
 }
 
 class ThumbDecodeTask : public QRunnable {

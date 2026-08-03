@@ -8,6 +8,10 @@
 #include <QStandardPaths>
 #include <QDir>
 #include "ManagerWindow.h"
+#include "decode_api.h"
+
+// 插件加载入口（qlens_decode 提供，C 链接）
+extern "C" bool QLensPlugins_LoadFromExeDir();
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -85,6 +89,9 @@ int main(int argc, char *argv[]) {
     g_logFile.open(QIODevice::Append | QIODevice::Text);
     qInstallMessageHandler(logHandler);
     qInfo() << "=== Manager started ===";
+
+    // 加载解码插件（exe 旁 plugins/，SVG 等格式）
+    QLensPlugins_LoadFromExeDir();
 
     ManagerWindow w;
     w.showMaximized();
