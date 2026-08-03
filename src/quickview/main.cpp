@@ -1,6 +1,8 @@
 ﻿#include <windows.h>
 #include <stdio.h>
 
+#define IDI_QLENS 101  // qlens.rc 图标资源
+
 extern "C" bool QLensPlugins_LoadFromExeDir();
 
 LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
@@ -30,9 +32,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
     wc.hInstance = hi;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hIcon = LoadIconW(hi, MAKEINTRESOURCEW(IDI_QLENS));
     wc.lpszClassName = L"QLensQuickView";
     if (!RegisterClassW(&wc)) return 1;
     if (!CreateMainWindow(hi)) return 1;
+    // 窗口/任务栏图标（含小图标）
+    HICON icon = LoadIconW(hi, MAKEINTRESOURCEW(IDI_QLENS));
+    if (icon) { SendMessageW(g_mainHwnd, WM_SETICON, ICON_BIG, (LPARAM)icon); SendMessageW(g_mainHwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon); }
 
     // 加载插件（exe 旁 plugins/ 目录）
     QLensPlugins_LoadFromExeDir();

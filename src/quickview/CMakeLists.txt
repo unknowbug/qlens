@@ -22,6 +22,7 @@ add_executable(qlens_quickview WIN32
     thumbstrip.h
     hdr.cpp
     hdr.h
+    qlens.rc
 )
 target_link_libraries(qlens_quickview PRIVATE qlens_decode d3d11 dxgi dwmapi d3dcompiler comdlg32 msimg32)
 target_compile_options(qlens_quickview PRIVATE /utf-8)

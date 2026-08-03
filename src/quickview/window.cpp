@@ -115,9 +115,10 @@ static void StartAnimationIfGif(const std::wstring &path)
     DecodeInfo qi;
     if (QueryImageInfo(path, qi) && qi.frames > 1) {
         g_animFrames = qi.frames;
+        // 超大 GIF：delays 只读前 256 帧，其余默认 100ms（防越界/delay 0 失控）
+        for (int i = 0; i < 256; ++i) g_animDelays[i] = 100;
         for (int i = 0; i < qi.frameDelayCount && i < 256; ++i)
-            g_animDelays[i] = qi.frameDelays[i];
-        if (g_animDelays[0] <= 0) g_animDelays[0] = 100;
+            if (qi.frameDelays[i] > 0) g_animDelays[i] = qi.frameDelays[i];
         g_animOn = true;
         g_animPending = true;  // 首帧已由 RequestLoadAsync 解码，完成后安排下一帧
     }
@@ -442,8 +443,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             // 动画：若当前帧解码完成且动画在播，安排下一帧
             if (g_animOn && g_animFrames > 1) {
                 g_animPending = false;
-                int delay = (g_animCur < g_animFrames && g_animDelays[g_animCur] > 0)
-                          ? g_animDelays[g_animCur] : 100;
+                // 超大 GIF：delays 只存前 256 帧，越界用默认 100ms
+                int delay = g_animDelays[g_animCur < 256 ? g_animCur : 255];
+                if (delay <= 0) delay = 100;
                 SetTimer(hwnd, 2, delay, nullptr);  // 定时切下一帧
             }
         } else if (r) {
