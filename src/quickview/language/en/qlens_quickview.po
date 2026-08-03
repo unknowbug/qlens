@@ -1,5 +1,5 @@
-# QLens UI language: English
-# Copy language files next to the exe (language/English.po) and select in Manager Settings
+# QLens QuickView UI language: English
+# Put language files next to the exe (language/en/qlens_quickview.po) and select in Manager Settings
 
 msgid "管理器"
 msgstr "Manager"

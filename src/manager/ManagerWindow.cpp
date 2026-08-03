@@ -219,8 +219,8 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
         QString target = args[1];
         if (QFileInfo::exists(target)) {
             QFileInfo fi(target);
-            openFolder(fi.absolutePath());
-            openInViewer(target);
+            openFolder(fi.absolutePath());   // 文件管理器模式（网格）
+            m_grid->selectImage(target);     // 焦点/选中该图片
         }
     } else {
         // 无参数：默认打开系统"图片"文件夹（兼容重定向到其他盘）

@@ -30,6 +30,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
     SetUnhandledExceptionFilter(CrashFilter);
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     WNDCLASSW wc = {};
+    wc.style = CS_DBLCLKS;  // 支持双击（WM_LBUTTONDBLCLK）
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hi;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);

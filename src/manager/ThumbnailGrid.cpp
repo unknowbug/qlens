@@ -377,6 +377,11 @@ ThumbnailGrid::~ThumbnailGrid() {
     QThreadPool::globalInstance()->clear();
 }
 
+// 选中指定图片（pending 到扫描完成；扫描完成在 applyScanResult 处理）
+void ThumbnailGrid::selectImage(const QString &path) {
+    m_pendingSelect = path;
+}
+
 void ThumbnailGrid::loadFolder(const QString &path) {
     // 切页瞬间宽度可能未就绪，延迟重排
     if (width() <= 0) {
@@ -465,6 +470,19 @@ void ThumbnailGrid::applyFilter() {
         }
     }
     m_model->setItems(visible);
+    // 待选中图片（QuickView 传入）：选中 + 滚动到可见
+    if (!m_pendingSelect.isEmpty()) {
+        for (int row = 0; row < m_model->rowCount(); ++row) {
+            const ThumbItem &it = m_model->itemAt(row);
+            if (!it.isDir && it.path == m_pendingSelect) {
+                QModelIndex idx = m_model->index(row);
+                setCurrentIndex(idx);
+                scrollTo(idx, QAbstractItemView::PositionAtCenter);
+                break;
+            }
+        }
+        m_pendingSelect.clear();
+    }
 }
 
 void ThumbnailGrid::setFilterTag(const QString &tag) {

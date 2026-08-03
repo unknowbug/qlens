@@ -1,6 +1,5 @@
-# QLens 界面语言：中文
-# 中文是 QLens 的默认语言——本文件作为"中文语言包"存在（msgstr 与 msgid 相同或为空）
-# 其他语言包参考 English.po 的格式（msgid=中文，msgstr=目标语言）
+# QLens QuickView 界面语言：中文（默认）
+# 中文无需翻译（msgstr 留空 = 显示 msgid 中文）
 
 msgid "管理器"
 msgstr ""

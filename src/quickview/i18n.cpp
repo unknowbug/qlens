@@ -132,9 +132,9 @@ bool LoadFromConfig()
     // zh → 默认中文（无需 .po）
     if (_wcsicmp(lang, L"zh") == 0) return true;
 
-    // 加载 language/<code>.po
+    // 加载 language/<code>/qlens_quickview.po
     wchar_t poPath[MAX_PATH];
-    swprintf_s(poPath, MAX_PATH, L"%s\\language\\%s.po", exeDir, lang);
+    swprintf_s(poPath, MAX_PATH, L"%s\\language\\%s\\qlens_quickview.po", exeDir, lang);
     return Load(poPath);
 }
 

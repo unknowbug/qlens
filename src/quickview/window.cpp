@@ -166,7 +166,8 @@ static void LoadDirFiles(const std::wstring &path)
         if (_wcsicmp(a.c_str(), b.c_str()) == 0) { g_curIdx = (int)i; break; }
     }
 }
-// 启动 Manager（exe 同目录 qlens_manager.exe；传当前文件夹路径）
+// 启动 Manager（exe 同目录 qlens_manager.exe；传当前图片完整路径）
+// Manager 以文件管理器方式打开图片所在文件夹并焦点该图片；QuickView 启动后自关闭
 static void LaunchManager(HWND hwnd)
 {
     wchar_t exe[MAX_PATH];
@@ -175,15 +176,12 @@ static void LaunchManager(HWND hwnd)
     wcscpy_s(dir, exe);
     PathRemoveFileSpecW(dir);
     std::wstring mgr = std::wstring(dir) + L"\\qlens_manager.exe";
-    // 传当前图片所在文件夹
+    // 传当前图片完整路径（Manager 打开其文件夹 + 焦点）
     std::wstring arg;
-    if (!g_curFile.empty()) {
-        wchar_t folder[MAX_PATH];
-        wcscpy_s(folder, g_curFile.c_str());
-        PathRemoveFileSpecW(folder);
-        arg = L"\"" + std::wstring(folder) + L"\"";
-    }
+    if (!g_curFile.empty()) arg = L"\"" + g_curFile + L"\"";
     ShellExecuteW(nullptr, L"open", mgr.c_str(), arg.empty() ? nullptr : arg.c_str(), nullptr, SW_SHOWNORMAL);
+    // QuickView 关闭（Manager 接管）
+    if (hwnd) DestroyWindow(hwnd);
 }
 
 void LoadFileByPath(HWND hwnd, const wchar_t *path)

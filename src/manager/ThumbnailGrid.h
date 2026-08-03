@@ -61,6 +61,8 @@ public:
     ~ThumbnailGrid() override;
 
     void loadFolder(const QString &path);
+    // 打开文件夹后选中指定图片（滚动到可见；loadFolder 异步——pending 到扫描完成）
+    void selectImage(const QString &path);
     void setHighlightTag(const QString &tag);
     // 过滤模式：只显示命中标签的图片（空 = 不过滤）
     void setFilterTag(const QString &tag);
@@ -97,6 +99,7 @@ private:
     QStringList  m_subDirs;
     QList<ThumbItem> m_allItems;   // 全量（不过滤）
     QString      m_currentFolder;
+    QString      m_pendingSelect;  // 待选中图片（loadFolder 异步完成后处理）
     QString      m_highlightTag;
     QString      m_filterTag;
     int          m_loadToken = 0;
