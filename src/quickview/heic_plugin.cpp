@@ -18,6 +18,9 @@ typedef int(*fn_handle_w)(void*);
 typedef int(*fn_handle_h)(void*);
 typedef int(*fn_handle_alpha)(void*);
 typedef int(*fn_handle_bits)(void*);
+typedef int(*fn_list_md)(void*, const char*, int*, int);   // heif_image_handle_get_list_of_metadata_block_IDs
+typedef size_t(*fn_md_size)(void*, int);                    // get_metadata_size
+typedef heif_error(*fn_get_md)(void*, int, void*);          // get_metadata
 typedef heif_error(*fn_decode)(void*, void**, int, int, void*);
 typedef void(*fn_img_release)(void*);
 typedef int(*fn_img_w)(void*, int);  // (img, channel)
@@ -28,6 +31,7 @@ static HMODULE g_heifLib = nullptr;
 static fn_ctx_alloc pfAlloc; static fn_ctx_free pfFree;
 static fn_ctx_read_file pfRead; static fn_ctx_primary pfPrimary;
 static fn_handle_release pfHRelease; static fn_handle_w pfHW; static fn_handle_h pfHH; static fn_handle_alpha pfHAlpha; static fn_handle_bits pfHBits;
+static fn_list_md pfListMd; static fn_md_size pfMdSize; static fn_get_md pfGetMd;
 static fn_decode pfDecode; static fn_img_release pfImgRelease;
 static fn_img_w pfIW; static fn_img_h pfIH; static fn_plane pfPlane;
 
@@ -57,6 +61,9 @@ static bool LoadHeif()
     pfHH = (fn_handle_h)GetProcAddress(g_heifLib, "heif_image_handle_get_height");
     pfHAlpha = (fn_handle_alpha)GetProcAddress(g_heifLib, "heif_image_handle_has_alpha_channel");
     pfHBits = (fn_handle_bits)GetProcAddress(g_heifLib, "heif_image_handle_get_luma_bits_per_pixel");
+    pfListMd = (fn_list_md)GetProcAddress(g_heifLib, "heif_image_handle_get_list_of_metadata_block_IDs");
+    pfMdSize = (fn_md_size)GetProcAddress(g_heifLib, "heif_image_handle_get_metadata_size");
+    pfGetMd = (fn_get_md)GetProcAddress(g_heifLib, "heif_image_handle_get_metadata");
     pfDecode = (fn_decode)GetProcAddress(g_heifLib, "heif_decode_image");
     pfImgRelease = (fn_img_release)GetProcAddress(g_heifLib, "heif_image_release");
     pfIW = (fn_img_w)GetProcAddress(g_heifLib, "heif_image_get_width");
@@ -92,6 +99,30 @@ static inline unsigned short f2h(float f)
     return (unsigned short)(sign | ((unsigned)e << 10) | m);
 }
 
+// 解析 EXIF TIFF 的 Orientation（Tag 0x0112）——返回 0=无/1-8
+static int ParseExifOrientation(const unsigned char *p, size_t size)
+{
+    if (size < 10 || !p) return 0;
+    bool le = (p[0] == 'I' && p[1] == 'I');
+    bool be = (p[0] == 'M' && p[1] == 'M');
+    if (!le && !be) return 0;
+    auto u16 = [&](const unsigned char *q) { return le ? (q[0] | (q[1] << 8)) : ((q[0] << 8) | q[1]); };
+    auto u32 = [&](const unsigned char *q) {
+        return le ? ((unsigned)q[0] | ((unsigned)q[1] << 8) | ((unsigned)q[2] << 16) | ((unsigned)q[3] << 24))
+                  : (((unsigned)q[0] << 24) | ((unsigned)q[1] << 16) | ((unsigned)q[2] << 8) | (unsigned)q[3]);
+    };
+    if (u16(p + 2) != 42) return 0;  // TIFF magic
+    unsigned ifd0 = u32(p + 4);
+    if (ifd0 + 2 > size) return 0;
+    int count = u16(p + ifd0);
+    for (int i = 0; i < count; ++i) {
+        const unsigned char *e = p + ifd0 + 2 + (size_t)i * 12;
+        if (e + 12 > p + size) break;
+        if (u16(e) == 0x0112) return u16(e + 8);  // Orientation（Type 3 SHORT）
+    }
+    return 0;
+}
+
 // ── query ──
 static bool heic_query(const wchar_t *path, DecodeInfo *info)
 {
@@ -113,6 +144,24 @@ static bool heic_query(const wchar_t *path, DecodeInfo *info)
     info->rotateW = w; info->rotateH = h;
     info->hasAlpha = hasAlpha != 0;
     info->exifRot = 0;
+    // 读 EXIF Orientation（libheif metadata；EXIF 数据前 4 字节是 TIFF 偏移）
+    if (pfListMd && pfMdSize && pfGetMd) {
+        int mdIds[8] = {};
+        int mdCount = pfListMd(handle, "Exif", mdIds, 8);
+        for (int mi = 0; mi < mdCount && mi < 8; ++mi) {
+            size_t sz = pfMdSize(handle, mdIds[mi]);
+            if (sz > 8 && sz < 65536) {
+                std::vector<unsigned char> md(sz);
+                heif_error me = pfGetMd(handle, mdIds[mi], md.data());
+                if (me.code == 0) {
+                    int rot = ParseExifOrientation(md.data() + 4, sz - 4);
+                    if (rot >= 1 && rot <= 8) { info->exifRot = rot; break; }
+                }
+            }
+        }
+    }
+    // EXIF 旋转后显示尺寸（Orientation 6/8 = 90° 换宽高）
+    if (info->exifRot == 6 || info->exifRot == 8) { info->rotateW = h; info->rotateH = w; }
     info->error = QLERR_OK;
     pfHRelease(handle);
     pfFree(ctx);
