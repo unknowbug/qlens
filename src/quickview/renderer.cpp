@@ -871,7 +871,8 @@ void RendererRender()
 
         // 方案 C：按需渲染可视区——直接对窗口像素采样原图（无 scaled 缓存）
         // 循环次数 = 窗口像素（恒定），与图尺寸/缩放倍率无关
-        if (g_pixFmt == 1) frame16.assign((size_t)g_w * g_h * 4, 0);
+        bool use16 = (g_pixFmt == 1 && g_hdrMode);  // 16F + HDR 屏直通；非 HDR 屏回退 8bit
+        if (use16) frame16.assign((size_t)g_w * g_h * 4, 0);
         else frame.assign((size_t)g_w * g_h * 4, 0);
         // 显示比例：sw/sh = 图显示尺寸（可能远超窗口，但只渲染可视区）
         float dispS = s;
@@ -903,7 +904,7 @@ void RendererRender()
                 int y0 = (int)sy; if (y0 >= g_imgH) y0 = g_imgH - 1;
                 int y1 = y0 + 1; if (y1 >= g_imgH) y1 = g_imgH - 1;
                 float wxw = sx - x0, wyw = sy - y0;
-                if (g_pixFmt == 1) {
+                if (g_pixFmt == 1 && g_hdrMode) {
                     // 16F 主图采样（float 缓冲，scRGB 线性——直接插值，无 half 转换）
                     const float *r0f = (const float*)(g_origPixels + (size_t)y0 * g_imgW * 16) + x0 * 4;
                     const float *r1f = (const float*)(g_origPixels + (size_t)y1 * g_imgW * 16) + x0 * 4;
@@ -914,6 +915,21 @@ void RendererRender()
                         dh[ch] = rFloat2Half(top*(1-wyw) + bot*wyw);
                     }
                     dh[3] = rFloat2Half(1.0f);
+                } else if (g_pixFmt == 1) {
+                    // 16F + 非 HDR 屏：tone map 到 8bit frame（HDR→SDR 回退，防黑屏）
+                    const float *r0f = (const float*)(g_origPixels + (size_t)y0 * g_imgW * 16) + x0 * 4;
+                    const float *r1f = (const float*)(g_origPixels + (size_t)y1 * g_imgW * 16) + x0 * 4;
+                    unsigned char *d = &rowDst[(size_t)wx * 4];
+                    for (int ch = 0; ch < 3; ++ch) {
+                        float top = r0f[ch]*(1-wxw) + r0f[4+ch]*wxw;
+                        float bot = r1f[ch]*(1-wxw) + r1f[4+ch]*wxw;
+                        float v = top*(1-wyw) + bot*wyw;   // scRGB 线性（0-5+）
+                        float tm = v / (1.0f + v);          // Reinhard → 0-1
+                        float s = tm <= 0.0031308f ? tm*12.92f : 1.055f*powf(tm, 1.0f/2.4f) - 0.055f;
+                        if (s < 0.0f) s = 0.0f; if (s > 1.0f) s = 1.0f;
+                        d[ch] = (unsigned char)(s * 255.0f);
+                    }
+                    d[3] = 255;
                 } else {
                     const unsigned char *r0 = g_origPixels + (size_t)y0 * g_imgW * 4;
                     const unsigned char *r1 = g_origPixels + (size_t)y1 * g_imgW * 4;
@@ -927,9 +943,9 @@ void RendererRender()
                 }
             }
         }
-        g_strip.renderToBuffer(g_pixFmt == 1 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, g_pixFmt == 1);
+        g_strip.renderToBuffer(use16 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, g_pixFmt == 1);
 
-        DrawButtons(g_pixFmt == 1 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, g_pixFmt == 1);
+        DrawButtons(use16 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, g_pixFmt == 1);
         // 文件名（缩略图条上方靠右）
         {
             extern std::wstring g_curFile;
@@ -939,18 +955,18 @@ void RendererRender()
                 const wchar_t *sl2 = wcsrchr(n, L'/');
                 if (sl2 && (!sl || sl2 > sl)) sl = sl2;
                 if (sl) n = sl + 1;
-                DrawFilename(g_pixFmt == 1 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, n, g_pixFmt == 1);
+                DrawFilename(use16 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, n, g_pixFmt == 1);
             }
         }
         if (g_debugMode)
-            DrawDebugInfo(g_pixFmt == 1 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, g_pixFmt == 1);
+            DrawDebugInfo(use16 ? (unsigned char*)frame16.data() : frame.data(), g_w, g_h, g_pixFmt == 1);
 
         sd.Width = g_w; sd.Height = g_h; sd.MipLevels = 1; sd.ArraySize = 1;
         sd.Usage = D3D11_USAGE_IMMUTABLE; sd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         sd.SampleDesc.Count = 1;
 
         if (g_hdrMode) {
-            if (g_pixFmt == 1) {
+            if (use16) {
                 // 16F 直通：frame16（half RGBA scRGB 线性）→ R16G16B16A16_FLOAT 纹理
                 D3D11_TEXTURE2D_DESC td16 = {};
                 td16.Width = g_w; td16.Height = g_h; td16.MipLevels = 1; td16.ArraySize = 1;
