@@ -241,16 +241,21 @@ bool DecodeImageFile(const std::wstring &path, DecodedImage &out, int frame)
             if (v <= 0.0031308f) return v * 12.92f;
             return 1.055f * powf(v, 1.0f / 2.4f) - 0.055f;
         };
-        // Reinhard tone map：把 HDR 线性值压到 [0,1]（保留高光细节，不过曝成白板）
+        // Reinhard tone map：0-1 保持线性（SDR 范围），>1 的 HDR 部分压缩到 [1, 峰值]
+        // 避免整体压灰（0-1 的值不该被压）
         auto toneMap = [](float lin) -> float {
             if (lin <= 0.0f) return 0.0f;
-            return lin / (1.0f + lin);
+            if (lin <= 1.0f) return lin;          // SDR 范围：线性保持
+            return 1.0f + (lin - 1.0f) / (1.0f + (lin - 1.0f));  // HDR 部分 Reinhard
         };
         for (size_t i = 0; i < (size_t)ib.width * ib.height; ++i) {
-            float r = half2float(src[i*4+0]);
-            float g = half2float(src[i*4+1]);
-            float b = half2float(src[i*4+2]);
-            float a = half2float(src[i*4+3]);
+            // 用实际 stride（避免 WIC 对齐导致的错位）
+            size_t row = i / ib.width, col = i % ib.width;
+            const unsigned short *sp = (const unsigned short*)(ib.pixels + row * ib.stride) + col * 4;
+            float r = half2float(sp[0]);
+            float g = half2float(sp[1]);
+            float b = half2float(sp[2]);
+            float a = half2float(sp[3]);
             auto c8 = [&](float v) -> unsigned char {
                 float t = toneMap(v);
                 float s = lin2srgb(t);

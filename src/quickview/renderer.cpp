@@ -134,11 +134,11 @@ static float pqEnc(float lin) {
 static float sdr2hdr(float lin) {
     // 自适应：亮图（highRatio 高）时高光软压缩，保留层次不过曝
     // 纯线性基线：lin * peakNit；亮图高光部分降低增益
-    float boost = 1.0 - 0.35 * highRatio;  // 高光比例越高，整体增益越低
+    float boost = 1.0 - 0.25 * highRatio;  // 高光比例越高，整体增益越低（更温和）
     float res = lin * peakNit * boost;
     // 高光软压缩：>0.7 的部分渐近压缩（避免顶到峰值纯白）
     float t = saturate((lin - 0.7) / 0.3);       // 0.7~1.0 过渡
-    float compressed = 0.7 * peakNit * boost + (lin - 0.7) * peakNit * boost * 0.55;
+    float compressed = 0.7 * peakNit * boost + (lin - 0.7) * peakNit * boost * 0.7;
     res = lerp(res, compressed, t * highRatio);
     return res;
 }
