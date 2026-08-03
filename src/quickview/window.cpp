@@ -398,6 +398,7 @@ static void GenerateThumbs()
     int vis = (h ? crc.right : 1200) / THUMB_W + 4;
     std::thread([paths, cur, vis, h]() {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+        HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         int lo = cur - vis, hi = cur + vis;
         if (lo < 0) lo = 0;
         if (hi > (int)paths.size()) hi = (int)paths.size();
@@ -413,6 +414,7 @@ static void GenerateThumbs()
             g_strip.loadImage(paths[idx], idx);
         }
         // 完成后通知主线程刷新
+        if (co == S_OK || co == S_FALSE) CoUninitialize();
         if (h) PostMessageW(h, WM_USER + 1, 0, 0);
     }).detach();
 }

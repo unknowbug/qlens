@@ -145,9 +145,12 @@ static float sdr2hdr(float lin) {
 float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     float4 c = tex.Sample(smp, uv);
     if (hdrSource > 0.5) {
-        // 真 HDR 图：已 tone map 到 SDR 范围（0..1），直接按 scRGB 显示（1.0=80nit）
-        // 不二次增强、不映射峰值（否则过曝）——保留 tone map 后的层次
-        return float4(c.r, c.g, c.b, 1.0);
+        // 真 HDR 图：tone map 到 8bit 后走 SDR 增强路径（和普通图一致，含高光压缩）
+        // 避免直通 scRGB 在 HDR 屏的显示异常；等 16F 真直通实现后再改
+        float r = srgb2lin(c.r);
+        float g = srgb2lin(c.g);
+        float b = srgb2lin(c.b);
+        return float4(sdr2hdr(r) / 80.0, sdr2hdr(g) / 80.0, sdr2hdr(b) / 80.0, 1.0);
     }
     float r = srgb2lin(c.r);
     float g = srgb2lin(c.g);
@@ -210,6 +213,7 @@ void RendererResize(int w, int h)
     if (w <= 0 || h <= 0) return;
     g_w = w; g_h = h;
     g_rtv.Reset();
+    g_frameTex.Reset(); g_frameSRV.Reset();   // 尺寸变了，纹理必须重建（否则 UpdateSubresource 尺寸不匹配）
     if (g_swap) {
         g_swap->ResizeBuffers(2, w, h, g_hdrMode ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM, 0);
         ComPtr<ID3D11Texture2D> back;
@@ -715,7 +719,14 @@ void RendererRender()
                 d[3] = 255;
             }
         }
-        g_strip.renderToBuffer(frame.data(), g_w, g_h);
+        g_strip.renderToBuffer(frame.data(), g_w, g_h);        { static int dbg = 0; if (dbg < 2) { FILE*f=fopen("E:/PYTHON/qlens/build-qv/crash.log","a"); if(f){ fprintf(f,"AFTER_STRIP winH=%d THUMB_H=%d\n", g_h, THUMB_H);
+            auto px = [&](int x, int y) { const unsigned char *p = &frame[((size_t)y*g_w+x)*4]; return (int)p[2]; };
+            fprintf(f, "  y=743: x0=%d x500=%d x1000=%d x1500=%d\n", px(0,743), px(500,743), px(1000,743), px(1500,743));
+            fprintf(f, "  y=1000: x0=%d x500=%d x1000=%d x1500=%d\n", px(0,1000), px(500,1000), px(1000,1000), px(1500,1000));
+            fprintf(f, "  y=1300: x0=%d x500=%d x1000=%d x1500=%d\n", px(0,1300), px(500,1300), px(1000,1300), px(1500,1300));
+            fprintf(f, "  y=1488(缩略图条): x0=%d x500=%d x1000=%d x1500=%d\n", px(0,1488), px(500,1488), px(1000,1488), px(1500,1488));
+            fclose(f);} dbg++; } }
+
         DrawButtons(frame.data(), g_w, g_h);
         // 文件名（缩略图条上方靠右）
         {
@@ -747,11 +758,16 @@ void RendererRender()
             D3D11_TEXTURE2D_DESC td = {};
             td.Width = g_w; td.Height = g_h; td.MipLevels = 1; td.ArraySize = 1;
             td.Format = DXGI_FORMAT_R8G8B8A8_UNORM; td.SampleDesc.Count = 1;
-            td.Usage = D3D11_USAGE_IMMUTABLE; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-            D3D11_SUBRESOURCE_DATA tInit = { rgba.data(), (UINT)(g_w*4), 0 };
-            g_frameTex.Reset(); g_frameSRV.Reset();
-            { HRESULT h1 = g_dev->CreateTexture2D(&td, &tInit, &g_frameTex);
-              HRESULT h2 = SUCCEEDED(h1) ? g_dev->CreateShaderResourceView(g_frameTex.Get(), nullptr, &g_frameSRV) : h1;
+            td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            if (!g_frameTex) {
+                g_dev->CreateTexture2D(&td, nullptr, &g_frameTex);
+                g_dev->CreateShaderResourceView(g_frameTex.Get(), nullptr, &g_frameSRV);
+            }
+            // 每帧 UpdateSubresource（避免重建/释放竞态——GPU 用旧纹理时 CPU 释放=叠影）
+            if (g_frameTex)
+                g_ctx->UpdateSubresource(g_frameTex.Get(), 0, nullptr, rgba.data(), (UINT)(g_w*4), 0);
+            { HRESULT h1 = g_frameTex ? S_OK : E_FAIL;
+              HRESULT h2 = g_frameSRV ? S_OK : E_FAIL;
               if (SUCCEEDED(h1) && SUCCEEDED(h2) && g_hdrVS && g_hdrPS) {
                 // 常量缓冲：peak
                 float peak = HdrDisplayPeakBrightness();

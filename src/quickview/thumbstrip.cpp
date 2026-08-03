@@ -123,15 +123,26 @@ void ThumbStrip::renderToBuffer(unsigned char *dst, int winW, int winH)
         if (x < 0 || x + THUMB_W > winW) continue;
         if (items[i].px.empty()) continue;
         const std::vector<unsigned char> &px = items[i].px;
-        // 画到 dst（缩放居中到 THUMB_W x THUMB_H 单元格）
-        int cellW = items[i].w, cellH = items[i].h;
-        int ix = x + (THUMB_W - cellW) / 2;
-        int iy = y0 + (THUMB_H - cellH) / 2;
+        // 缩放缩略图到格子内（防全尺寸缩略图铺开覆盖主图/越界）
+        int sw = items[i].w, sh = items[i].h;
+        if (sw < 1) sw = 1; if (sh < 1) sh = 1;
+        float scale = (float)THUMB_W / sw;
+        float sh2 = (float)(THUMB_H - 6) / sh;
+        if (sh2 < scale) scale = sh2;   // 取较小缩放（保持比例）
+        if (scale > 1.0f) scale = 1.0f; // 不放大（小图保持原样）
+        int dw = (int)(sw * scale); if (dw < 1) dw = 1;
+        int dh = (int)(sh * scale); if (dh < 1) dh = 1;
+        int ix = x + (THUMB_W - dw) / 2;
+        int iy = y0 + (THUMB_H - dh) / 2;
         bool isCur = (i == curIdx);
-        for (int yy = 0; yy < cellH && iy + yy < winH; ++yy)
-            for (int xx = 0; xx < cellW && ix + xx < winW; ++xx) {
-                const unsigned char *s = &px[((size_t)yy * cellW + xx) * 4];
+        for (int yy = 0; yy < dh; ++yy) {
+            int sy = (int)(yy / scale); if (sy >= sh) sy = sh - 1;
+            for (int xx = 0; xx < dw; ++xx) {
+                int sx = (int)(xx / scale); if (sx >= sw) sx = sw - 1;
+                const unsigned char *s = &px[((size_t)sy * sw + sx) * 4];
                 unsigned char *d = dst + ((size_t)(iy+yy) * winW + (ix+xx)) * 4;
+                // 钳制绘制范围（防任何越界写）
+                if ((size_t)(iy+yy) < (size_t)winH && (size_t)(ix+xx) < (size_t)winW) {
                 if (isCur) {
                     // 当前图光亮：提亮 + 白底衬托
                     int v0 = (s[0]*2+255)/3, v1 = (s[1]*2+255)/3, v2 = (s[2]*2+255)/3;
@@ -140,7 +151,9 @@ void ThumbStrip::renderToBuffer(unsigned char *dst, int winW, int winH)
                     // 非当前图：轻微压暗
                     d[0]=s[0]*3/4; d[1]=s[1]*3/4; d[2]=s[2]*3/4; d[3]=255;
                 }
+                }
             }
+        }
         // Picasa 风格：当前图光亮（整体提亮），其他图正常
     }
 }
