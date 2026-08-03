@@ -72,6 +72,9 @@ void ViewerWidget::showContextMenu(const QPoint &gpos)
     QAction *full    = menu.addAction(T(L"100%"));
     QAction *fit     = menu.addAction(T(L"适应窗口"));
     menu.addSeparator();
+    QAction *rotCW  = menu.addAction(T(L"顺时针旋转 90°"));
+    QAction *rotCCW = menu.addAction(T(L"逆时针旋转 90°"));
+    menu.addSeparator();
     QAction *copypath = menu.addAction(T(L"复制"));
 
     QAction *sel = menu.exec(gpos);
@@ -90,6 +93,10 @@ void ViewerWidget::showContextMenu(const QPoint &gpos)
         mime->setText(m_currentFile);
         if (!img.isNull()) mime->setImageData(img);
         QApplication::clipboard()->setMimeData(mime);
+    } else if (sel == rotCW) {
+        rotate(1);
+    } else if (sel == rotCCW) {
+        rotate(-1);
     }
 }
 
@@ -204,6 +211,18 @@ void ViewerWidget::updateZoom()
             m_view->fitInView(br, Qt::KeepAspectRatio);
         }
     }
+    m_view->viewport()->update();  // 强制重绘（缩放/适配后立即生效）
+}
+
+// 旋转 90°（dir=1 顺时针，-1 逆时针）
+void ViewerWidget::rotate(int dir)
+{
+    if (m_original.isNull() || !m_pixmapItem) return;
+    QTransform t;
+    t.rotate(dir * 90.0);
+    m_original = m_original.transformed(t, Qt::SmoothTransformation);
+    m_pixmapItem->setPixmap(m_original);
+    updateZoom();
 }
 
 // ── 事件 ──────────────────────────────
@@ -229,6 +248,8 @@ void ViewerWidget::keyPressEvent(QKeyEvent *e)
         } break;
     case Qt::Key_1: case Qt::Key_F: m_zoomFactor = 1.0; updateZoom(); break;
     case Qt::Key_0: case Qt::Key_S: m_zoomFactor = 0.0; updateZoom(); break;
+    case Qt::Key_Q: rotate(-1); break;   // 逆时针 90°
+    case Qt::Key_E: rotate(1); break;    // 顺时针 90°
     default: QWidget::keyPressEvent(e);
     }
 }

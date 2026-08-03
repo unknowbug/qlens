@@ -37,6 +37,7 @@ private:
     void decodeAsync(const QString &filePath, int idx);
     void navigate(int direction);
     void updateZoom();
+    void rotate(int dir);
     void showContextMenu(const QPoint &gpos);
 
     QGraphicsView       *m_view   = nullptr;

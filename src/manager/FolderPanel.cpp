@@ -8,6 +8,9 @@ FolderPanel::FolderPanel(QWidget *parent) : QWidget(parent) {
 
     m_folderTree = new QTreeView(this);
     m_fsModel = new QFileSystemModel(this);
+    m_folderTree->setStyleSheet(
+        "QTreeView{background:#111; color:#ddd; border:none;}"
+        "QTreeView::item:selected{background:#335; color:#fff;}");
     // 根 = 所有驱动器（Windows: C:、D:...），任意路径都能在树中导航
     m_fsModel->setRootPath("");
     m_fsModel->setFilter(QDir::AllDirs | QDir::NoDotAndDotDot);

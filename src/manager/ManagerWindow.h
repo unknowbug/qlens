@@ -12,6 +12,7 @@
 #include "TagPanel.h"
 #include "TagStore.h"
 #include "ViewerWidget.h"
+#include "PathBar.h"
 
 class ManagerWindow : public QMainWindow {
     Q_OBJECT
@@ -53,7 +54,7 @@ private:
     TagPanel      *m_tagPanel = nullptr;
     ViewerWidget  *m_viewer  = nullptr;
     QLabel        *m_viewTitle = nullptr;
-    QLabel        *m_pathLabel = nullptr;
+    PathBar       *m_pathBar   = nullptr;
     QComboBox     *m_filterCombo = nullptr;
     QComboBox     *m_highlightCombo = nullptr;
     bool           m_updatingCombo = false;

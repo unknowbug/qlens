@@ -82,7 +82,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
 
     connect(m_viewer, &ViewerWidget::imageChanged, [this](const QString &p, int) {
         // 右侧 TagPanel 跟随切图显示标签
-        m_tagPanel->setCurrentImage(p);        m_viewTitle->setText(QFileInfo(p).fileName());
+        m_tagPanel->setCurrentImage(p);        m_viewTitle->setText(p);  // 完整路径（不是文件名）
         setWindowTitle(QFileInfo(p).fileName() + " — QLens");
     });
     // 右键菜单「返回网格」
@@ -122,10 +122,13 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     tl->addWidget(m_upBtn);
     tl->addSpacing(4);
 
-    m_pathLabel = new QLabel(T(L"(无文件夹)"), toolbar);
-    m_pathLabel->setStyleSheet("color:#aaa; font-size:12px;");
-    m_pathLabel->setMinimumWidth(160);
-    tl->addWidget(m_pathLabel, 1);
+    m_pathBar = new PathBar(toolbar);
+    m_pathBar->setStyleSheet("background:#141414; border:1px solid #333; border-radius:3px;");
+    m_pathBar->setMinimumWidth(200);
+    connect(m_pathBar, &PathBar::pathActivated, [this](const QString &p) {
+        openFolder(p);
+    });
+    tl->addWidget(m_pathBar, 1);
 
     m_filterCombo = new QComboBox(toolbar);
     m_filterCombo->setEditable(true);
@@ -327,8 +330,7 @@ void ManagerWindow::updateNavButtons() {
 
 // 文件夹变化：更新路径标签 + 刷新过滤/着色候选标签
 void ManagerWindow::refreshToolbar(const QString &path) {
-    m_pathLabel->setText(QDir(path).dirName().isEmpty() ? path : QDir(path).dirName());
-    m_pathLabel->setToolTip(path);
+    m_pathBar->setPath(path);
     QStringList tags = m_grid->folderTags();
     m_updatingCombo = true;
     m_filterCombo->clear();

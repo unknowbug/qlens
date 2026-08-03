@@ -376,7 +376,7 @@ ThumbnailGrid::ThumbnailGrid(TagStore *store, QWidget *parent)
     setViewMode(QListView::IconMode);
     setResizeMode(QListView::Adjust);
     setMovement(QListView::Static);
-    setSelectionMode(QListView::SingleSelection);
+    setSelectionMode(QAbstractItemView::ExtendedSelection);  // Ctrl 单选 / Shift 连选 / 拉框多选
     setUniformItemSizes(true);          // 性能：布局 O(1)
     setSpacing(2);
     setGridSize(QSize(thumbCellSize(), thumbCellSize()));
@@ -423,7 +423,7 @@ void ThumbnailGrid::contextMenuEvent(QContextMenuEvent *event)
     QAction *sel  = menu.exec(event->globalPos());
 
     if (sel == open) {
-        if (!it.isDir) emit imageClicked(it.path);
+        if (!it.isDir) emit imageDoubleClicked(it.path);
     } else if (sel == saveAs) {
         saveAsDialog(it.path);
     } else if (sel == cp) {

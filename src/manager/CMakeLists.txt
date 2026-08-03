@@ -6,6 +6,7 @@ add_executable(qlens_manager WIN32
     ThumbnailGrid.cpp
     FolderPanel.cpp
     TagPanel.cpp
+    PathBar.cpp
     TagStore.cpp
     ${CMAKE_SOURCE_DIR}/src/core/ViewerWidget.cpp
     ${QLENS_RC}

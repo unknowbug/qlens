@@ -161,3 +161,9 @@ msgstr "Save failed"
 
 msgid "PNG (*.png);;JPEG (*.jpg *.jpeg);;WebP (*.webp);;BMP (*.bmp)"
 msgstr "PNG (*.png);;JPEG (*.jpg *.jpeg);;WebP (*.webp);;BMP (*.bmp)"
+
+msgid "顺时针旋转 90°"
+msgstr "Rotate Clockwise 90°"
+
+msgid "逆时针旋转 90°"
+msgstr "Rotate Counterclockwise 90°"
