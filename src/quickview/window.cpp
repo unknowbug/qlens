@@ -44,7 +44,7 @@ static void DeleteCurrentToRecycle();
 void RendererLoadImage(const std::wstring &path);
 ThumbStrip g_strip;
 static void GenerateThumbs();
-static std::wstring g_curFile;
+std::wstring g_curFile;
 static HWND g_hwnd = nullptr;
 static std::vector<std::wstring> g_files;
 static int g_curIdx = -1;

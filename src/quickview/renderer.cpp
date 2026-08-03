@@ -580,6 +580,70 @@ static void DrawButtons(unsigned char *frame, int winW, int winH)
     RenderButtonGDI(frame, winW, winH, g_btnNextX, g_btnNextY, 44, 36, L"\u25B6", g_hoverBtn == 2, 14, 14);
 }
 
+// 绘制当前文件名到 frame（缩略图条上方靠右，半透明黑底白字）
+static void DrawFilename(unsigned char *frame, int winW, int winH, const wchar_t *name)
+{
+    if (!name || !name[0]) return;
+    HDC screenDC = GetDC(nullptr);
+    HDC memDC = CreateCompatibleDC(screenDC);
+    // 先量文字宽度
+    HFONT font = CreateFontW(15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei");
+    HGDIOBJ oldF = SelectObject(memDC, font);
+    SIZE sz;
+    GetTextExtentPoint32W(memDC, name, (int)wcslen(name), &sz);
+    int bw = sz.cx + 24, bh = 30;
+    if (bw < 40) bw = 40;
+    // 位置：缩略图条上方（主图区底部边缘），靠右 16px
+    int y0 = winH - THUMB_H;
+    int by = y0 - bh - 10;  // 缩略图条上方 10px
+    int bx = winW - bw - 16;
+
+    // 离屏 DIB（黑底）
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = bw;
+    bi.bmiHeader.biHeight = -bh;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    HBITMAP bmp = CreateDIBSection(memDC, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    HGDIOBJ oldBmp = SelectObject(memDC, bmp);
+    HBRUSH bg = CreateSolidBrush(RGB(0, 0, 0));
+    HBRUSH oldBr = (HBRUSH)SelectObject(memDC, bg);
+    Rectangle(memDC, 0, 0, bw, bh);
+    SelectObject(memDC, oldBr);
+    DeleteObject(bg);
+    // 白字
+    SetBkMode(memDC, TRANSPARENT);
+    SetTextColor(memDC, RGB(235, 235, 235));
+    SelectObject(memDC, font);
+    RECT tr = { 12, 0, bw - 8, bh };
+    DrawTextW(memDC, name, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    // 合进 frame（半透明 55%）
+    for (int yy = 0; yy < bh; ++yy)
+        for (int xx = 0; xx < bw; ++xx) {
+            int fx = bx + xx, fy = by + yy;
+            if (fx < 0 || fx >= winW || fy < 0 || fy >= winH) continue;
+            unsigned char *src = (unsigned char*)bits + ((size_t)yy * bw + xx) * 4;
+            unsigned char *dst = frame + ((size_t)fy * winW + fx) * 4;
+            dst[0] = (unsigned char)(src[0]*0.55 + dst[0]*0.45);
+            dst[1] = (unsigned char)(src[1]*0.55 + dst[1]*0.45);
+            dst[2] = (unsigned char)(src[2]*0.55 + dst[2]*0.45);
+            dst[3] = 255;
+        }
+
+    SelectObject(memDC, oldBmp);
+    DeleteObject(bmp);
+    SelectObject(memDC, oldF);
+    DeleteObject(font);
+    DeleteDC(memDC);
+    ReleaseDC(nullptr, screenDC);
+}
+
 void RendererRender()
 {
     if (!g_rtv) return;
@@ -653,6 +717,18 @@ void RendererRender()
         }
         g_strip.renderToBuffer(frame.data(), g_w, g_h);
         DrawButtons(frame.data(), g_w, g_h);
+        // 文件名（缩略图条上方靠右）
+        {
+            extern std::wstring g_curFile;
+            if (!g_curFile.empty()) {
+                const wchar_t *n = g_curFile.c_str();
+                const wchar_t *sl = wcsrchr(n, L'\\');
+                const wchar_t *sl2 = wcsrchr(n, L'/');
+                if (sl2 && (!sl || sl2 > sl)) sl = sl2;
+                if (sl) n = sl + 1;
+                DrawFilename(frame.data(), g_w, g_h, n);
+            }
+        }
 
         sd.Width = g_w; sd.Height = g_h; sd.MipLevels = 1; sd.ArraySize = 1;
         sd.Usage = D3D11_USAGE_IMMUTABLE; sd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
