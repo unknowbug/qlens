@@ -1,5 +1,23 @@
 <RCC>
     <qresource prefix="/">
         <file alias="app.ico">../../assets/QLens.ico</file>
+        <file alias="icons/AVIF.ico">../../icons/AVIF.ico</file>
+        <file alias="icons/BMP.ico">../../icons/BMP.ico</file>
+        <file alias="icons/DDS.ico">../../icons/DDS.ico</file>
+        <file alias="icons/DNG.ico">../../icons/DNG.ico</file>
+        <file alias="icons/EXR.ico">../../icons/EXR.ico</file>
+        <file alias="icons/GIF.ico">../../icons/GIF.ico</file>
+        <file alias="icons/HDR.ico">../../icons/HDR.ico</file>
+        <file alias="icons/HEIF.ico">../../icons/HEIF.ico</file>
+        <file alias="icons/ICO.ico">../../icons/ICO.ico</file>
+        <file alias="icons/JPG.ico">../../icons/JPG.ico</file>
+        <file alias="icons/JXL.ico">../../icons/JXL.ico</file>
+        <file alias="icons/PNG.ico">../../icons/PNG.ico</file>
+        <file alias="icons/PSD.ico">../../icons/PSD.ico</file>
+        <file alias="icons/RAW.ico">../../icons/RAW.ico</file>
+        <file alias="icons/SVG.ico">../../icons/SVG.ico</file>
+        <file alias="icons/TGA.ico">../../icons/TGA.ico</file>
+        <file alias="icons/TIFF.ico">../../icons/TIFF.ico</file>
+        <file alias="icons/WEBP.ico">../../icons/WEBP.ico</file>
     </qresource>
 </RCC>

@@ -11,21 +11,17 @@ QIcon FileIcons::iconForExt(const QString &ext)
     if (key.isEmpty()) return {};
     if (g_iconCache.contains(key)) return g_iconCache[key];
 
-    // 路径：exe 旁 icons/（发布）→ exe 的 ../../icons（开发：build-qv/Release → 项目根/icons）
-    QString base = QCoreApplication::applicationDirPath();
-    QStringList dirs = {
-        base + "/icons",
-        base + "/../../icons",
-    };
-    for (const QString &d : dirs) {
-        QString f = d + "/" + key + ".ico";
-        if (QFile::exists(f)) {
-            QIcon ic(f);
-            if (!ic.isNull()) {
-                g_iconCache[key] = ic;
-                return ic;
-            }
-        }
+    // 1) 优先编译进 exe 的资源（qrc：icons/XXX.ico）——任何安装位置可用
+    QString resPath = ":/icons/" + key + ".ico";
+    if (QFile::exists(resPath)) {
+        QIcon ic(resPath);
+        if (!ic.isNull()) { g_iconCache[key] = ic; return ic; }
+    }
+    // 2) 回退：exe 旁 icons/（可选外部覆盖/换肤）
+    QString f = QCoreApplication::applicationDirPath() + "/icons/" + key + ".ico";
+    if (QFile::exists(f)) {
+        QIcon ic(f);
+        if (!ic.isNull()) { g_iconCache[key] = ic; return ic; }
     }
     g_iconCache[key] = {};  // 缓存"无"避免重复找
     return {};
