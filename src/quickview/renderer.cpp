@@ -30,6 +30,7 @@ static unsigned char *g_origPixels = nullptr;
 static int g_rotation = 0;  // 0/1/2/3 = 0/90/180/270 度
 static int g_exifRot = 0;   // EXIF Orientation（自动旋转，渲染时叠加）
 static bool g_isHdrImage = false;  // 源图是高位深（真 HDR 图）
+static float g_highRatio = 0.0f;   // 高光像素比例（>0.8 亮度占比，亮图降高光）
 
 bool g_d3dReady = false;
 static bool g_hdrMode = false;  // 当前是否 HDR 输出
@@ -105,7 +106,8 @@ SamplerState smp : register(s0);
 cbuffer Params : register(b0) {
     float peakNit;
     float hdrSource;   // 1=源是真 HDR 图（已 tone map 到 SDR 范围，不二次增强）
-    float pad0, pad1;
+    float highRatio;   // 高光像素比例（>0.8 亮度占比，亮图自动降高光）
+    float pad0;
 };
 static float srgb2lin(float c) {
     return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
@@ -121,8 +123,15 @@ static float pqEnc(float lin) {
     return pow((c1 + c2 * Yp) / (1.0 + c3 * Yp), m2);
 }
 static float sdr2hdr(float lin) {
-    // 基线：纯线性，白像素 → 峰值（自动检测），无任何曲线
-    return lin * peakNit;
+    // 自适应：亮图（highRatio 高）时高光软压缩，保留层次不过曝
+    // 纯线性基线：lin * peakNit；亮图高光部分降低增益
+    float boost = 1.0 - 0.35 * highRatio;  // 高光比例越高，整体增益越低
+    float res = lin * peakNit * boost;
+    // 高光软压缩：>0.7 的部分渐近压缩（避免顶到峰值纯白）
+    float t = saturate((lin - 0.7) / 0.3);       // 0.7~1.0 过渡
+    float compressed = 0.7 * peakNit * boost + (lin - 0.7) * peakNit * boost * 0.55;
+    res = lerp(res, compressed, t * highRatio);
+    return res;
 }
 float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     float4 c = tex.Sample(smp, uv);
@@ -231,11 +240,12 @@ void RendererLoadImage(const std::wstring &path)
 
 // ── 异步解码接口（#12：主图解码移后台线程 + 取消）──
 // 后台线程调用：解码到独立缓冲（不碰渲染状态，线程安全）
-bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr)
+bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char **outPix, int *outW, int *outH, int *outRot, bool *outHdr, float *outHighRatio)
 {
-    if (!outPix || !outW || !outH || !outRot || !outHdr) return false;
+    if (!outPix || !outW || !outH || !outRot || !outHdr || !outHighRatio) return false;
     *outPix = nullptr;
     *outHdr = false;
+    *outHighRatio = 0.0f;
 
     // Query：EXIF 旋转 + 失败分类（后台线程安全）
     DecodeInfo info;
@@ -256,6 +266,19 @@ bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char *
     for (int y = 0; y < img.height; ++y)
         memcpy(pix + (size_t)y * img.width * 4, img.pixels + (size_t)y * stride, (size_t)img.width * 4);
 
+    // 统计高光比例（>0.8 亮度占比）——用于亮图自动降高光
+    {
+        long long hi = 0, total = (long long)img.width * img.height;
+        if (total > 0) {
+            for (long long i = 0; i < total; ++i) {
+                const unsigned char *p = pix + (size_t)i * 4;
+                int lum = ((int)p[0] + (int)p[1] + (int)p[2]) / 3;
+                if (lum > 204) hi++;  // 0.8 * 255
+            }
+            *outHighRatio = (float)hi / (float)total;
+        }
+    }
+
     *outPix = pix;
     *outW = img.width;
     *outH = img.height;
@@ -264,7 +287,7 @@ bool RendererDecodeToBuffer(const std::wstring &path, int frame, unsigned char *
 }
 
 // UI 线程调用：提交解码结果到渲染状态（替换旧图）
-void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isHdr)
+void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isHdr, float highRatio)
 {
     if (!pix || w < 1 || h < 1) return;
     delete[] g_origPixels;
@@ -272,6 +295,7 @@ void RendererCommitImage(unsigned char *pix, int w, int h, int exifRot, bool isH
     g_imgW = w; g_imgH = h;
     g_exifRot = exifRot;
     g_isHdrImage = isHdr;
+    g_highRatio = highRatio;
     g_rotation = 0;  // 新图重置手动旋转（Q/E 只对当前图）
     // 默认：图小于窗口→100%不放大，图大于窗口→适配缩小
     g_zoom = (g_imgW <= g_w && g_imgH <= g_h) ? 1.0f : 0.0f;
@@ -624,7 +648,7 @@ void RendererRender()
                 // 常量缓冲：peak
                 float peak = HdrDisplayPeakBrightness();
                 if (peak <= 0.0f) peak = 1000.0f;
-                float cbData[4] = { peak, g_isHdrImage ? 1.0f : 0.0f, 0, 0 };
+                float cbData[4] = { peak, g_isHdrImage ? 1.0f : 0.0f, g_highRatio, 0 };
                 g_ctx->UpdateSubresource(g_hdrCB.Get(), 0, nullptr, cbData, 0, 0);
 
                 g_ctx->OMSetRenderTargets(1, g_rtv.GetAddressOf(), nullptr);
