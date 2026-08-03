@@ -480,6 +480,15 @@ QStringList ThumbnailGrid::allImagePaths() const
     return paths;
 }
 
+// 图片数量（不含子目录）——状态栏用
+int ThumbnailGrid::imageCount() const
+{
+    int c = 0;
+    for (int i = 0; i < m_model->rowCount(); ++i)
+        if (!m_model->itemAt(i).isDir) ++c;
+    return c;
+}
+
 // 另存为：QImage 解码 → 保存为选择的格式（扩展名决定）
 void ThumbnailGrid::saveAsDialog(const QString &path)
 {

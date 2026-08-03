@@ -28,6 +28,9 @@ private:
     void openFolder(const QString &path);
     void backToGrid();
     void refreshToolbar(const QString &path);
+    // 状态栏
+    void updateGridStatus();
+    void updateViewerStatus(const QString &path);
     // Settings
     void setLanguage(const QString &lang);
     void registerFileAssociations();
@@ -55,6 +58,7 @@ private:
     ViewerWidget  *m_viewer  = nullptr;
     QLabel        *m_viewTitle = nullptr;
     PathBar       *m_pathBar   = nullptr;
+    QLabel        *m_statusLabel = nullptr;
     QComboBox     *m_filterCombo = nullptr;
     QComboBox     *m_highlightCombo = nullptr;
     bool           m_updatingCombo = false;

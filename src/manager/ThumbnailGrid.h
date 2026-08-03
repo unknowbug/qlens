@@ -74,6 +74,8 @@ public:
     // 当前文件夹的全部标签（供工具条候选，主线程汇总）
     QStringList folderTags() const;
     QString currentFolder() const { return m_currentFolder; }
+    // 图片数量（不含子目录）——状态栏用
+    int imageCount() const;
 
     // 线程池任务回调（主线程执行；QPixmap 只能 GUI 线程创建）
     // token 用于丢弃过期任务：loadFolder 自增，回调不匹配则丢弃（防止切目录竞态）

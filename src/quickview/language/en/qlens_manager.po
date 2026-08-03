@@ -167,3 +167,30 @@ msgstr "Rotate Clockwise 90°"
 
 msgid "逆时针旋转 90°"
 msgstr "Rotate Counterclockwise 90°"
+
+msgid "筛选:"
+msgstr "Filter:"
+
+msgid "高亮:"
+msgstr "Highlight:"
+
+msgid "帮助(&H)"
+msgstr "&Help"
+
+msgid "关于标签协议(&T)"
+msgstr "&About Tag Protocol"
+
+msgid "关于 QLens(&A)"
+msgstr "&About QLens"
+
+msgid "协议文档未找到："
+msgstr "Protocol document not found: "
+
+msgid "关于 QLens"
+msgstr "About QLens"
+
+msgid "张图片"
+msgstr "images"
+
+msgid "张选中"
+msgstr "selected"

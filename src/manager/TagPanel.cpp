@@ -60,12 +60,23 @@ TagPanel::TagPanel(TagStore *store, QWidget *parent)
     addLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);  // 标题不拉伸
     ll->addWidget(addLabel);
 
-    m_tagInput = new QLineEdit(lower);
+    m_tagInput = new QPlainTextEdit(lower);
     m_tagInput->setPlaceholderText(T(L"输入标签（用 , 分隔）+ 回车..."));
     m_tagInput->setStyleSheet("background:#222; color:#ccc; border:1px solid #333; padding:4px;");
-    m_tagInput->setAlignment(Qt::AlignLeft);  // 提示文字左上角
     m_tagInput->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);  // 占满剩余高度
     ll->addWidget(m_tagInput, 1);
+    m_tagInput->installEventFilter(this);
+
+    // 补全候选（QPlainTextEdit 无 setCompleter——Tab 补全手动）
+    m_completer = new QCompleter(this);
+    m_completer->setCaseSensitivity(Qt::CaseInsensitive);
+    connect(m_tagInput, &QPlainTextEdit::textChanged, [this]() {
+        QString text = m_tagInput->toPlainText();
+        QString prefix = text.mid(text.lastIndexOf(',') + 1).trimmed();
+        m_suggestions = m_store->searchTags(prefix);
+        if (m_suggestions.isEmpty() && prefix.isEmpty())
+            m_suggestions = m_store->allTagNames();
+    });
 
     splitter->addWidget(upper);
     splitter->addWidget(lower);
@@ -73,20 +84,34 @@ TagPanel::TagPanel(TagStore *store, QWidget *parent)
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({200, 100});  // 输入栏默认占 1/3
     l->addWidget(splitter, 1);
-    m_tagInput->setCompleter(m_completer);
-
-    connect(m_tagInput, &QLineEdit::returnPressed, this, &TagPanel::addTagFromInput);
-    // 输入时动态更新补全列表（取最后一个逗号后的片段做前缀）
-    connect(m_tagInput, &QLineEdit::textEdited, [this](const QString &text) {
-        QString prefix = text.mid(text.lastIndexOf(',') + 1).trimmed();
-        QStringList suggestions = m_store->searchTags(prefix);
-        if (suggestions.isEmpty() && prefix.isEmpty())
-            suggestions = m_store->allTagNames();
-        m_completer->setModel(new QStringListModel(suggestions, m_completer));
-        m_completer->setCompletionPrefix(prefix);
-    });
 
     setMinimumWidth(200);
+}
+
+// 回车提交（Ctrl+Enter 换行）、Tab 补全（插入第一个候选）
+bool TagPanel::eventFilter(QObject *obj, QEvent *ev)
+{
+    if (obj == m_tagInput && ev->type() == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(ev);
+        if (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) {
+            if (ke->modifiers() & Qt::ControlModifier)
+                return QWidget::eventFilter(obj, ev);  // Ctrl+Enter 换行
+            addTagFromInput();
+            return true;
+        }
+        if (ke->key() == Qt::Key_Tab && !m_suggestions.isEmpty()) {
+            QString text = m_tagInput->toPlainText();
+            int comma = text.lastIndexOf(',');
+            QString prefix = text.mid(comma + 1).trimmed();
+            QString cand = m_suggestions.first();
+            if (cand.compare(prefix, Qt::CaseInsensitive) != 0) {
+                m_tagInput->setPlainText(text.left(comma + 1) + " " + cand + ", ");
+                m_tagInput->moveCursor(QTextCursor::End);
+            }
+            return true;
+        }
+    }
+    return QWidget::eventFilter(obj, ev);
 }
 
 void TagPanel::setCurrentImage(const QString &imagePath) {
@@ -97,7 +122,7 @@ void TagPanel::setCurrentImage(const QString &imagePath) {
 void TagPanel::addTagFromInput() {
     if (m_currentImage.isEmpty()) return;
     // 逗号分隔批量添加，自动去前后空格
-    QStringList parts = m_tagInput->text().split(',', Qt::SkipEmptyParts);
+    QStringList parts = m_tagInput->toPlainText().split(',', Qt::SkipEmptyParts);
     QString fname = QFileInfo(m_currentImage).fileName();
     bool any = false;
     for (QString &t : parts) {

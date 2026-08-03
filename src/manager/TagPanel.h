@@ -1,7 +1,7 @@
 #pragma once
 #include <QWidget>
 #include <QListWidget>
-#include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QCompleter>
 #include "TagStore.h"
 
@@ -22,10 +22,12 @@ signals:
 private:
     void addTagFromInput();
     void refresh();
+    bool eventFilter(QObject *obj, QEvent *ev) override;
 
-    TagStore    *m_store = nullptr;
-    QString      m_currentImage;
-    QListWidget *m_assignedTags = nullptr;
-    QLineEdit   *m_tagInput     = nullptr;
-    QCompleter  *m_completer    = nullptr;
+    TagStore        *m_store = nullptr;
+    QString          m_currentImage;
+    QListWidget     *m_assignedTags = nullptr;
+    QPlainTextEdit  *m_tagInput     = nullptr;
+    QCompleter      *m_completer    = nullptr;
+    QStringList      m_suggestions;   // 当前补全候选（Tab 补全用）
 };

@@ -225,6 +225,14 @@ void ViewerWidget::rotate(int dir)
     updateZoom();
 }
 
+// 尺寸变化后重新适配（修复首次打开时窗口尺寸未就绪导致 fit 缩小）
+void ViewerWidget::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    if (m_zoomFactor == 0.0 && !m_original.isNull())
+        updateZoom();
+}
+
 // ── 事件 ──────────────────────────────
 
 void ViewerWidget::keyPressEvent(QKeyEvent *e)

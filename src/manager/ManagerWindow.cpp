@@ -7,6 +7,10 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QStatusBar>
+#include <QImageReader>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QFile>
 #include <QApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -84,6 +88,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
         // 右侧 TagPanel 跟随切图显示标签
         m_tagPanel->setCurrentImage(p);        m_viewTitle->setText(p);  // 完整路径（不是文件名）
         setWindowTitle(QFileInfo(p).fileName() + " — QLens");
+        updateViewerStatus(p);
     });
     // 右键菜单「返回网格」
     connect(m_viewer, &ViewerWidget::backRequested, this, &ManagerWindow::backToGrid);
@@ -130,6 +135,10 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     });
     tl->addWidget(m_pathBar, 1);
 
+    // 筛选：只显示命中标签的图片
+    auto *filterLabel = new QLabel(T(L"筛选:"), toolbar);
+    filterLabel->setStyleSheet("color:#888;");
+    tl->addWidget(filterLabel);
     m_filterCombo = new QComboBox(toolbar);
     m_filterCombo->setEditable(true);
     m_filterCombo->setInsertPolicy(QComboBox::NoInsert);
@@ -138,6 +147,10 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     m_filterCombo->setStyleSheet("QComboBox{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:3px;}");
     tl->addWidget(m_filterCombo);
 
+    // 高亮：给网格项加颜色标记（按标签）
+    auto *hlLabel = new QLabel(T(L"高亮:"), toolbar);
+    hlLabel->setStyleSheet("color:#888;");
+    tl->addWidget(hlLabel);
     m_highlightCombo = new QComboBox(toolbar);
     m_highlightCombo->setEditable(true);
     m_highlightCombo->setInsertPolicy(QComboBox::NoInsert);
@@ -188,7 +201,9 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     addDockWidget(Qt::RightDockWidgetArea, rightDock);
 
     // ── 状态栏 ──
-    statusBar()->showMessage(T(L"就绪"));
+    m_statusLabel = new QLabel(T(L"就绪"), this);
+    m_statusLabel->setStyleSheet("color:#888; padding:2px 8px;");
+    statusBar()->addPermanentWidget(m_statusLabel);
 
     // ── 菜单 ──
     auto *fm = menuBar()->addMenu(T(L"文件(&F)"));
@@ -233,10 +248,40 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     auto *mcpMenu = menuBar()->addMenu(tr("&MCP"));
     mcpMenu->addAction(T(L"关于 MCP(&A)"), [this]() { showMcpHelp(); });
 
+    // ── 帮助菜单（协议文档 + 关于）──
+    auto *helpMenu = menuBar()->addMenu(T(L"帮助(&H)"));
+    helpMenu->addAction(T(L"关于标签协议(&T)"), [this]() {
+        // 打开协议文档（优先 exe 相对 docs/，回退源码目录）
+        QString base = QCoreApplication::applicationDirPath();
+        QStringList candidates = {
+            base + "/docs/QLENS_TAG_PROTOCOL.md",
+            base + "/../docs/QLENS_TAG_PROTOCOL.md",
+            base + "/../src/mcp/QLENS_TAG_PROTOCOL.md",
+        };
+        QString doc;
+        for (const QString &c : candidates)
+            if (QFile::exists(c)) { doc = c; break; }
+        if (doc.isEmpty()) {
+            QMessageBox::information(this, T(L"关于标签协议"),
+                T(L"协议文档未找到：") + candidates.first());
+            return;
+        }
+        QDesktopServices::openUrl(QUrl::fromLocalFile(doc));
+    });
+    helpMenu->addSeparator();
+    helpMenu->addAction(T(L"关于 QLens(&A)"), [this]() {
+        QMessageBox::about(this, T(L"关于 QLens"),
+            QStringLiteral("<h3>QLens 0.2.0</h3>"
+                "<p>轻量图片查看器 + 管理器，围绕一套开放的图片标签协议（qltag.db）构建。</p>"
+                "<p>协议文档：docs/QLENS_TAG_PROTOCOL.md</p>"
+                "<p>© 2026 NDark (unknowbug)</p>"));
+    });
+
     // ── 信号路由 ──
     connect(m_folderPanel, &FolderPanel::folderSelected, [this](const QString &path) {
         m_grid->loadFolder(path);
         refreshToolbar(path);
+        updateGridStatus();
     });
 
     connect(m_grid, &ThumbnailGrid::folderDoubleClicked, [this](const QString &path) {
@@ -251,6 +296,9 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_grid, &ThumbnailGrid::imageClicked, [this](const QString &path) {
         m_tagPanel->setCurrentImage(path);
     });
+    // 选中变化 → 状态栏（选中数/当前文件大小）
+    connect(m_grid->selectionModel(), &QItemSelectionModel::selectionChanged,
+            [this]() { updateGridStatus(); });
 
     // ── 启动参数：图片路径 → 打开所在文件夹并查看 ──
     const QStringList args = QCoreApplication::arguments();
@@ -340,6 +388,47 @@ void ManagerWindow::refreshToolbar(const QString &path) {
     m_updatingCombo = false;
 }
 
+static QString formatFileSize(qint64 bytes)
+{
+    if (bytes < 1024) return QString("%1 B").arg(bytes);
+    if (bytes < 1024 * 1024) return QString("%1 KB").arg(bytes / 1024.0, 0, 'f', 1);
+    return QString("%1 MB").arg(bytes / (1024.0 * 1024.0), 0, 'f', 2);
+}
+
+// 状态栏：网格视图（图片数 / 选中数 / 当前选中文件大小）
+void ManagerWindow::updateGridStatus()
+{
+    int total = m_grid->imageCount();
+    QString curPath;
+    int selCount = 0;
+    auto sels = m_grid->selectionModel()->selectedIndexes();
+    selCount = sels.size();
+    if (selCount > 0)
+        curPath = sels.first().data(ThumbModel::PathRole).toString();
+    QString msg = QString("%1 %2  |  %3 %4")
+        .arg(total).arg(T(L"张图片")).arg(selCount).arg(T(L"张选中"));
+    if (!curPath.isEmpty()) {
+        QFileInfo fi(curPath);
+        msg += QString("  |  %1（%2）").arg(fi.fileName()).arg(formatFileSize(fi.size()));
+    }
+    m_statusLabel->setText(msg);
+}
+
+// 状态栏：查看器（当前图片转述信息：文件名/尺寸/格式/大小）
+void ManagerWindow::updateViewerStatus(const QString &path)
+{
+    QImageReader r(path);
+    QSize sz = r.size();
+    QFileInfo fi(path);
+    QString msg = QString("%1  |  %2×%3  |  %4  |  %5")
+        .arg(fi.fileName())
+        .arg(sz.isValid() ? sz.width() : 0)
+        .arg(sz.isValid() ? sz.height() : 0)
+        .arg(fi.suffix().toUpper())
+        .arg(formatFileSize(fi.size()));
+    m_statusLabel->setText(msg);
+}
+
 void ManagerWindow::openInViewer(const QString &path) {
     m_viewer->openFile(path);
     m_stack->setCurrentIndex(1);  // 切到查看页
@@ -348,6 +437,7 @@ void ManagerWindow::openInViewer(const QString &path) {
 void ManagerWindow::backToGrid() {
     m_stack->setCurrentIndex(0);
     setWindowTitle(QString::fromWCharArray(I18n::Get(L"QLens 管理器")));
+    updateGridStatus();
 }
 
 void ManagerWindow::keyPressEvent(QKeyEvent *e) {
