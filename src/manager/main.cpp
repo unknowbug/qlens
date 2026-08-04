@@ -7,6 +7,7 @@
 #include <QTextStream>
 #include <QStandardPaths>
 #include <QDir>
+#include <QFileInfo>
 #include "ManagerWindow.h"
 #include "decode_api.h"
 #include "i18n.h"
@@ -98,6 +99,12 @@ int main(int argc, char *argv[]) {
 
     ManagerWindow w;
     w.showMaximized();
+    // 命令行参数：目录 → 启动后打开（语言切换自动重启保留路径）
+    if (argc > 1) {
+        const QString p = QString::fromLocal8Bit(argv[1]);
+        if (QFileInfo(p).isDir())
+            w.openFolder(QDir::cleanPath(p));
+    }
     int rc = app.exec();
     qInstallMessageHandler(nullptr);
     return rc;

@@ -417,9 +417,9 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     helpMenu->addAction(T(L"关于 QLens(&A)"), [this]() {
         QMessageBox::about(this, T(L"关于 QLens"),
             QStringLiteral("<h3>QLens 0.2.1</h3>"
-                "<p>轻量图片查看器 + 管理器，围绕一套开放的图片标签协议（qltag.db）构建。</p>"
-                "<p>协议文档：docs/QLENS_TAG_PROTOCOL.md</p>"
-                "<p>© 2026 N.T.Black (unknowbug)</p>"));
+                "<p>") + T(L"轻量图片查看器 + 管理器，围绕一套开放的图片标签协议（qltag.db）构建。") +
+                QStringLiteral("</p><p>") + T(L"协议文档：docs/QLENS_TAG_PROTOCOL.md") +
+                QStringLiteral("</p><p>© 2026 N.T.Black (unknowbug)</p>"));
     });
 
     // ── 初始加载延迟到窗口显示后（UI 先出，缩略图/数据库后台载入）──
@@ -745,7 +745,14 @@ void ManagerWindow::setLanguage(const QString &lang)
     std::wstring iniPath = I18n::ConfigIniPath(true);  // 分发兼容：exe 旁可写 → AppData
     WritePrivateProfileStringW(L"General", L"language",
         (LPCWSTR)lang.utf16(), iniPath.c_str());
-    QMessageBox::information(this, T(L"设置"), T(L"语言已更改，重启后生效。"));
+    QMessageBox::information(this, T(L"设置"), T(L"语言已切换，程序将自动重启。"));
+    // 自动重启应用新语言（无需手动重启）——保留当前文件夹
+    QStringList args;
+    const QString cur = m_grid->currentFolder();
+    if (!cur.isEmpty()) args << cur;
+    QProcess::startDetached(QCoreApplication::applicationFilePath(), args,
+                            QCoreApplication::applicationDirPath());
+    QTimer::singleShot(300, qApp, &QApplication::quit);
 }
 
 // ── MCP 帮助 ──
@@ -753,30 +760,29 @@ void ManagerWindow::setLanguage(const QString &lang)
 void ManagerWindow::showMcpHelp()
 {
     const QString help =
-        QStringLiteral(
-        "QLens MCP Server 让 AI 客户端（Claude / CherryStudio / Cursor 等）操作你的图片库。\n\n"
-        "可用工具（14）：\n"
-        "  查询：\n"
-        "    qlens_list_folder   列出文件夹图片+标签\n"
-        "    qlens_search_tag    按单个标签搜索\n"
-        "    qlens_combo_search  多标签组合搜索（AND/OR）\n"
-        "    qlens_get_tags      读图片标签\n"
-        "    qlens_folder_tags   文件夹内所有标签\n"
-        "    qlens_tag_stats     标签统计（每标签图片数）\n"
-        "  打标：\n"
-        "    qlens_set_tags      全量设置标签（替换/清空）\n"
-        "    qlens_add_tags      追加标签\n"
-        "    qlens_export_tags   导出标签（CSV/JSON）\n"
-        "    qlens_import_tags   导入标签（CSV/JSON）\n"
-        "  文件：\n"
-        "    qlens_move_files    移动/归档（标签迁移）\n"
-        "    qlens_rename_files  重命名（标签迁移）\n"
-        "    qlens_delete_files  永久删除（需客户端确认）\n"
-        "  分析：\n"
-        "    qlens_analyze       批量 QC 质检打标（本地 OpenCV，零 token）\n\n"
-        "配置（MCP 客户端添加 stdio server）：\n"
-        "  python <QLens安装目录>/mcp/server.py\n\n"
-        "协议文档：docs/QLENS_TAG_PROTOCOL.md");
+        T(L"QLens MCP Server 让 AI 客户端（Claude / CherryStudio / Cursor 等）操作你的图片库。") + "\n\n" +
+        T(L"可用工具（14）：") + "\n" +
+        T(L"  查询：") + "\n" +
+        T(L"    qlens_list_folder   列出文件夹图片+标签") + "\n" +
+        T(L"    qlens_search_tag    按单个标签搜索") + "\n" +
+        T(L"    qlens_combo_search  多标签组合搜索（AND/OR）") + "\n" +
+        T(L"    qlens_get_tags      读图片标签") + "\n" +
+        T(L"    qlens_folder_tags   文件夹内所有标签") + "\n" +
+        T(L"    qlens_tag_stats     标签统计（每标签图片数）") + "\n" +
+        T(L"  打标：") + "\n" +
+        T(L"    qlens_set_tags      全量设置标签（替换/清空）") + "\n" +
+        T(L"    qlens_add_tags      追加标签") + "\n" +
+        T(L"    qlens_export_tags   导出标签（CSV/JSON）") + "\n" +
+        T(L"    qlens_import_tags   导入标签（CSV/JSON）") + "\n" +
+        T(L"  文件：") + "\n" +
+        T(L"    qlens_move_files    移动/归档（标签迁移）") + "\n" +
+        T(L"    qlens_rename_files  重命名（标签迁移）") + "\n" +
+        T(L"    qlens_delete_files  永久删除（需客户端确认）") + "\n" +
+        T(L"  分析：") + "\n" +
+        T(L"    qlens_analyze       批量 QC 质检打标（本地 OpenCV，零 token）") + "\n\n" +
+        T(L"配置（MCP 客户端添加 stdio server）：") + "\n" +
+        T(L"  python <QLens安装目录>/mcp/server.py") + "\n\n" +
+        T(L"协议文档：docs/QLENS_TAG_PROTOCOL.md");
     QMessageBox::information(this, T(L"QLens MCP"), help);
 }
 

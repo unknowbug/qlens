@@ -18,6 +18,7 @@ class ManagerWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit ManagerWindow(QWidget *parent = nullptr);
+    void openFolder(const QString &path);   // 公开：命令行参数/语言切换重启恢复路径
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -25,7 +26,6 @@ protected:
 
 private:
     void openInViewer(const QString &path);
-    void openFolder(const QString &path);
     void backToGrid();
     void refreshToolbar(const QString &path);
     // 状态栏

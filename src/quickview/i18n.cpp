@@ -149,11 +149,11 @@ bool LoadForApp(const wchar_t *appName)
     // 2) 无配置 → 系统 UI 语言
     if (!lang[0]) {
         LANGID lid = GetUserDefaultUILanguage();
-        // 中文（简体/繁体/zh）→ zh；英文 → en；其他 → 默认中文
+        // 中文（简体/繁体/zh）→ zh；英文 → en；其他 → 默认 English（国际化惯例）
         switch (PRIMARYLANGID(lid)) {
             case LANG_CHINESE: wcscpy_s(lang, L"zh"); break;
             case LANG_ENGLISH: wcscpy_s(lang, L"en"); break;
-            default: wcscpy_s(lang, L"zh"); break;
+            default: wcscpy_s(lang, L"en"); break;
         }
     }
     // 归一化：zh/Chinese → zh；en/English → en
