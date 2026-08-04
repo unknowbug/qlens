@@ -85,6 +85,8 @@ public:
     QStringList allImagePaths() const;
     // 重新加载当前文件夹（QC 检测后刷新缩略图/角标）
     void refreshCurrentFolder();
+    // QC 检测后重画缩略图 QC emoji 角标（用 m_store 实例连接——打标同一连接，必然读到新标）
+    void refreshQcBadges();
     void paintQcEmojis(QPixmap &display, const QStringList &emojis);   // emoji 角标绘制（共享）
 
     // 当前文件夹的全部标签（供工具条候选，主线程汇总）

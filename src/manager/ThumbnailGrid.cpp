@@ -1075,6 +1075,29 @@ void ThumbnailGrid::paintQcEmojis(QPixmap &display, const QStringList &emojis)
     p.end();
 }
 
+// QC 检测打标后：重画缩略图 QC emoji 角标
+// 用 m_store->qcTagMap()（实例连接 = 打标同一连接，WAL 下必然读到新标；
+// threadConnection 跨连接读不到刚写入的数据——实测 count=0）
+void ThumbnailGrid::refreshQcBadges()
+{
+    if (m_currentFolder.isEmpty()) return;
+    m_qcTagMap = m_store->qcTagMap();
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        const ThumbItem &it = m_model->itemAt(row);
+        if (it.isDir || it.pix.isNull()) continue;
+        const QStringList tags = m_qcTagMap.value(it.name);
+        QStringList emojis;
+        for (auto it2 = qcEmojiMap().constBegin(); it2 != qcEmojiMap().constEnd(); ++it2)
+            if (tags.contains(it2.key())) emojis << it2.value();
+        if (emojis.isEmpty()) continue;
+        QPixmap display = it.pix;
+        paintQcEmojis(display, emojis);
+        m_model->updatePix(row, display);
+        for (ThumbItem &ai : m_allItems)
+            if (!ai.isDir && ai.path == it.path) { ai.pix = display; break; }
+    }
+}
+
 void ThumbnailGrid::applyFolderThumb(int row, const QImage &img, int token) {
     // 过期任务丢弃：用户已切到别的文件夹
     if (token != m_loadToken) return;

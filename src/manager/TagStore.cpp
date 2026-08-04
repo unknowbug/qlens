@@ -320,6 +320,24 @@ QStringList TagStore::queryFilesWithTag(const QString &folder, const QString &ta
     return result;
 }
 
+// 用实例连接（m_db——打标同一连接）查当前文件夹 QC 标签映射
+// 为什么不用 threadConnection：主线程/worker 的独立连接在 WAL 模式下读不到其他连接刚写入的数据
+// （实测 QC 打标后跨连接 queryFolderQcMap 返回 0）——必须用打标的同一个连接
+QHash<QString, QStringList> TagStore::qcTagMap() const
+{
+    QHash<QString, QStringList> map;
+    if (!m_db.isOpen()) return map;
+    QSqlQuery q(m_db);
+    q.exec("SELECT it.filename, t.name FROM image_tags it "
+           "JOIN tags t ON t.id=it.tag_id WHERE t.category='qc'");
+    while (q.next()) {
+        const QString fn = q.value(0).toString();
+        const QString name = q.value(1).toString();
+        map[fn].append(name);
+    }
+    return map;
+}
+
 QStringList TagStore::queryFolderTags(const QString &folder)
 {
     QSqlDatabase db = threadConnection(folder);

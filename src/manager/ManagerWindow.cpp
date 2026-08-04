@@ -892,9 +892,8 @@ void ManagerWindow::runQcDetection() {
             m_statusLabel->setText(T(L"QC 检测完成：") +
                 QStringLiteral("过曝 %1 | 模糊 %2 | 色偏 %3")
                     .arg(nOver).arg(nBlur).arg(nColor));
-            // QC 检测完成：重扫重载当前文件夹（缩略图缓存命中快；worker 批量预查 map 含新标 →
-            // applyImageThumb 立即画 emoji）——比只重画已加载缩略图可靠
-            m_grid->refreshCurrentFolder();
+            // QC 检测完成：用实例连接重画 emoji 角标（跨连接 WAL 读不到新标——不重扫）
+            m_grid->refreshQcBadges();
             m_grid->setFilterQc(m_qcCombo->currentData().toString());
         }
         watcher->deleteLater();

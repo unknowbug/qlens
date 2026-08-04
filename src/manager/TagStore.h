@@ -44,6 +44,8 @@ public:
 
     // 标签名 → id（内存缓存，未找到返回 -1）
     int tagId(const QString &name) const { return m_tagNames.value(name, -1); }
+    // 用实例连接（m_db——打标同一连接）查当前文件夹 QC 标签映射——跨连接 WAL 读不到新写入，必须同连接
+    QHash<QString, QStringList> qcTagMap() const;
 
     // ── 线程安全静态查询（W2 worker 用）──
     // 每线程独立连接（B1），按 folder 打开 qltag.db，不依赖实例连接
