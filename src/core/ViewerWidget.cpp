@@ -201,20 +201,31 @@ void ViewerWidget::navigate(int direction)
 
 // ── 缩放 ──────────────────────────────
 
-// 缩放百分比（100=100% 原尺寸；适配模式返回实际显示比例——超大图适配后可能 10~40%）
+// 当前图的预缩放比（pixmap/原图；≤4096 的图 =1，超大图 <1）
+static double preScaleRatio(const QPixmap &pix, const QSize &origSize)
+{
+    if (pix.isNull() || !origSize.isValid() || origSize.width() <= 0) return 1.0;
+    double r = (double)pix.width() / origSize.width();
+    return (r > 0.0 && r <= 1.0) ? r : 1.0;
+}
+
+// 缩放百分比（相对原图的真实比例：100=原图 100%）
+// 超大图预缩放后 transform.m11 是相对预缩放图的——必须乘预缩放比才是真实比例
 double ViewerWidget::zoomPercent() const {
-    if (m_zoomFactor > 0.0) return m_zoomFactor * 100.0;
-    // 适配模式：transform 的 m11 即当前实际显示比例
+    const double scale = preScaleRatio(m_original, m_origSize);
+    if (m_zoomFactor > 0.0)
+        return qMax(5.0, m_zoomFactor * scale * 100.0);
     if (m_view) {
         double m11 = m_view->transform().m11();
-        if (m11 > 0.001) return qMax(5.0, m11 * 100.0);
+        if (m11 > 0.001) return qMax(5.0, m11 * scale * 100.0);
     }
     return 100.0;
 }
 
 void ViewerWidget::setZoomPercent(double pct) {
+    const double scale = preScaleRatio(m_original, m_origSize);
     const double clamped = qBound(5.0, pct, 400.0);   // 下限 5%（留缩小空间），上限 400%
-    const double factor = clamped / 100.0;
+    const double factor = (clamped / 100.0) / scale;  // zoomFactor 应用在预缩放 pixmap 上
     if (qAbs(factor - m_zoomFactor) < 0.001) return;
     m_zoomFactor = factor;
     updateZoom();
