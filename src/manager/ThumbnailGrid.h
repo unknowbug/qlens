@@ -75,7 +75,7 @@ public:
     // 过滤模式：只显示命中标签的图片（空 = 不过滤）
     void setFilterTag(const QString &tag);   // 逗号分隔多 tag = AND
     void setFilterQc(const QString &qc);
-    // 缩略图大小（96~640；状态栏滑块 / Ctrl+滚轮 调用）
+    // 缩略图大小（32~480；状态栏滑块 / Ctrl+滚轮 调用）
     void setThumbSize(int size);
     int thumbSize() const { return m_thumbSize; }
 

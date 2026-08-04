@@ -909,9 +909,9 @@ void ThumbnailGrid::applyScanResult(const ScanResult &res, int token) {
         }
     }
 
-    // 缩略图生成/缓存尺寸固定 256：不随滑块变（10W 图缓存体积可控），显示时 delegate 缩放
+    // 缩略图生成/缓存尺寸固定 320：不随滑块变（10W 图缓存体积可控），显示时 delegate 缩放
     // 缓存键含 size——尺寸策略再变时旧缓存自动失效
-    int ts = 256;
+    int ts = 320;
     QThreadPool *pool = QThreadPool::globalInstance();
     int dirCount = (int)m_subDirs.size();
 
@@ -1023,7 +1023,7 @@ void ThumbnailGrid::applyImageThumb(int row, const QString &path, const QImage &
     QBuffer buf(&bytes);
     buf.open(QIODevice::WriteOnly);
     pix.save(&buf, "PNG");
-    ThumbnailCache::put(path, 256, bytes);
+    ThumbnailCache::put(path, 320, bytes);
 
     // 过滤后行号可能变化，按路径定位
     int visibleRow = findModelRow(path);
@@ -1076,7 +1076,7 @@ void ThumbnailGrid::applyFolderThumb(int row, const QImage &img, int token) {
 }
 
 void ThumbnailGrid::setThumbSize(int size) {
-    const int clamped = std::clamp(size, 96, 640);
+    const int clamped = std::clamp(size, 32, 480);
     if (clamped == m_thumbSize) return;
     m_thumbSize = clamped;
     setGridSize(QSize(thumbCellSize(), thumbCellSize()));

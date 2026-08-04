@@ -333,7 +333,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     // 状态栏左侧：缩略图大小 / 查看器缩放 滑块（view 态自动挂钩图片缩放）
     m_sizeSlider = new QSlider(Qt::Horizontal, this);
     m_sizeSlider->setFixedWidth(160);
-    m_sizeSlider->setRange(96, 640);
+    m_sizeSlider->setRange(32, 480);
     m_sizeSlider->setValue(m_grid->thumbSize());
     m_sizeLabel = new QLabel(QString("%1: %2").arg(T(L"缩略图")).arg(m_grid->thumbSize()), this);
     m_sizeLabel->setStyleSheet("color:#888; padding:0 6px;");
@@ -814,7 +814,7 @@ void ManagerWindow::backToGrid() {
     updateGridStatus();
     // 滑块切回"缩略图大小"模式（blockSignals：setRange clamp 旧值会误触发 setThumbSize）
     m_sizeSlider->blockSignals(true);
-    m_sizeSlider->setRange(96, 640);
+    m_sizeSlider->setRange(32, 480);
     m_sizeSlider->setValue(m_grid->thumbSize());
     m_sizeSlider->blockSignals(false);
     m_sizeLabel->setText(QString("%1: %2").arg(T(L"缩略图")).arg(m_grid->thumbSize()));
