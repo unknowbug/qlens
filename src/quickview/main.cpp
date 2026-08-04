@@ -23,7 +23,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
         auto fn = (SetDpiCtxFn)GetProcAddress(user32, "SetProcessDpiAwarenessContext");
         if (fn) fn(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
-    CrashLog_Init(L"QLens", L"0.2.1");   // 崩溃捕获：版本/系统/调用栈+模块偏移 → %APPDATA%\QLens\crash.log
+    CrashLog_Init(L"QLens", L"0.2.2");   // 崩溃捕获：版本/系统/调用栈+模块偏移 → %APPDATA%\QLens\crash.log
     if (CrashLog_HasRecentCrash()) {
         wchar_t path[MAX_PATH];
         CrashLog_Path(path, MAX_PATH);

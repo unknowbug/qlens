@@ -41,7 +41,7 @@ build-qv\Release\
 
 ```bat
 rem 1. 保证 build-qv\Release 是最新运行集（构建 + 复制 + windeployqt）
-rem 2. pack.ps1：复制运行集 → dist\QLens-0.2.1\ + zip（103 文件）
+rem 2. pack.ps1：复制运行集 → dist\QLens-0.2.2\ + zip（103 文件）
 powershell -ExecutionPolicy Bypass -File pack.ps1
 rem 3. Inno Setup：setup.exe（安装写关联 + 卸载自动清理）
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" QLens.iss
@@ -118,9 +118,9 @@ HKCU\Software\Classes\.jpg\OpenWithProgids\QLensQuickView  （每个已注册扩
 
 ```bat
 rem 1. 装 Inno Setup（winget install JRSoftware.InnoSetup，或官网 GitHub release）
-rem 2. 编译（需要先跑 pack.ps1 生成 dist\QLens-0.2.1\）
+rem 2. 编译（需要先跑 pack.ps1 生成 dist\QLens-0.2.2\）
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" QLens.iss
-rem 产出：dist\QLens-0.2.1-setup.exe
+rem 产出：dist\QLens-0.2.2-setup.exe
 ```
 
 - `QLens.iss`：安装写文件关联（与 Manager 注册逻辑一致，`uninsdeletekey/uninsdeletevalue` 卸载自动清理）；HKCU 用户级——免管理员
@@ -131,3 +131,4 @@ rem 产出：dist\QLens-0.2.1-setup.exe
 
 - 解码插件放 `plugins/`（DLL）——见[插件开发指南](06-plugin-dev.md)
 - 现有：HEIC/AVIF（libheif）、SVG
+

@@ -1,10 +1,10 @@
-; QLens Inno Setup 安装脚本（生成 dist\QLens-0.2.1-setup.exe）
+; QLens Inno Setup 安装脚本（生成 dist\QLens-0.2.2-setup.exe）
 ; 安装：复制文件 + 写文件关联（HKCU 用户级，免管理员）
 ; 卸载：自动清理全部注册关联（uninsdeletekey/uninsdeletevalue）——不留空白右键菜单
 ; 文件类型图标：每扩展独立 ProgID（QLens.JPG/QLens.PNG...）→ DefaultIcon 指向 icons\<EXT>.ico
 
 #define MyAppName "QLens"
-#define MyAppVersion "0.2.1"
+#define MyAppVersion "0.2.2"
 #define MyAppPublisher "N.T.Black (unknowbug)"
 #define MyAppExe "qlens_manager.exe"
 #define QVExe "qlens_quickview.exe"

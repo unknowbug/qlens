@@ -66,7 +66,7 @@ static void logHandler(QtMsgType type, const QMessageLogContext &ctx, const QStr
 int main(int argc, char *argv[]) {
 #ifdef Q_OS_WIN
     // 崩溃捕获（SEH 硬崩溃 → %APPDATA%/QLens Manager/crash.log：版本/系统/调用栈+模块偏移）
-    CrashLog_Init(L"QLens Manager", L"0.2.1");
+    CrashLog_Init(L"QLens Manager", L"0.2.2");
 #endif
 
     QApplication app(argc, argv);

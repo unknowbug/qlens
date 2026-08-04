@@ -470,7 +470,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     helpMenu->addSeparator();
     helpMenu->addAction(T(L"关于 QLens(&A)"), [this]() {
         QMessageBox::about(this, T(L"关于 QLens"),
-            QStringLiteral("<h3>QLens 0.2.1</h3>"
+            QStringLiteral("<h3>QLens 0.2.2</h3>"
                 "<p>") + T(L"轻量图片查看器 + 管理器，围绕一套开放的图片标签协议（qltag.db）构建。") +
                 QStringLiteral("</p><p>") + T(L"协议文档：docs/QLENS_TAG_PROTOCOL.md") +
                 QStringLiteral("</p><p>© 2026 N.T.Black (unknowbug)</p>"));

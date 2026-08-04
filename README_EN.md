@@ -6,6 +6,8 @@
 
 English · [中文](README.md)
 
+See [CHANGELOG.md](CHANGELOG.md) for version history.
+
 QLens is built around an open image-tagging protocol (`qltag.db`) that any
 software, script, or AGENT can read and write:
 

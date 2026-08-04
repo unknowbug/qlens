@@ -6,6 +6,8 @@
 
 [English](README_EN.md) · 中文
 
+版本变动见 [CHANGELOG.md](CHANGELOG.md)。
+
 QLens 由三部分组成，围绕一套开放的图片标签协议（`qltag.db`）构建，
 让任何软件、脚本或 AGENT 都能读写图片标签：
 

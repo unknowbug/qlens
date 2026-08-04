@@ -1,12 +1,12 @@
-﻿﻿﻿# QLens 打包脚本（Windows Release）
+﻿# QLens 打包脚本（Windows Release）
 # 用法：powershell -ExecutionPolicy Bypass -File pack.ps1
 # 主运行根：build-qv\Release（两 exe + Qt Release + 插件 + language/icons/docs/mcp 已齐）
 # 产出：dist\QLens-<ver>\（目录）+ dist\QLens-<ver>.zip
-# 2026-08-04: 0.2.1（修复：单击蓝框/双击/框选/多选标签聚合）
+# 2026-08-05: 0.2.2（首次启动现场写默认配置 + 打包排除 config）
 $ErrorActionPreference = "Stop"
 $root   = $PSScriptRoot
 if (-not $root) { $root = (Get-Location).Path }   # 兜底：当前目录
-$ver    = "0.2.1"
+$ver    = "0.2.2"
 $qtBin  = "D:\Qt\6.11.1\msvc2022_64\bin"
 $src    = Join-Path $root "build-qv\Release"
 $dist   = Join-Path $root "dist\QLens-$ver"
@@ -24,7 +24,11 @@ if (Test-Path $zipOut) { Remove-Item $zipOut -Force }
 Copy-Item "$src\*" $dist -Recurse -Force
 
 # 2. 保险：Qt 运行时（若运行根缺 Qt DLL 则补全；幂等）
+# windeployqt 的 dxcompiler 等警告走 stderr——$ErrorActionPreference=Stop 会误终止，此处局部降级
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 & "$qtBin\windeployqt.exe" --no-translations --no-system-d3d-compiler --release "$dist\qlens_manager.exe" 2>$null
+$ErrorActionPreference = $prevEAP
 
 # 3. 排除链接副产品（.lib/.exp——非运行需要）+ 运行期生成物（config 不打包：首次启动现场写）
 Get-ChildItem $dist -Recurse -Include "*.lib","*.exp" -File | Remove-Item -Force

@@ -26,9 +26,9 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "QLens"
             VALUE "FileDescription", "QLens QuickView"
-            VALUE "FileVersion", "0.2.1"
+            VALUE "FileVersion", "0.2.2"
             VALUE "ProductName", "QLens"
-            VALUE "ProductVersion", "0.2.1"
+            VALUE "ProductVersion", "0.2.2"
         END
     END
     BLOCK "VarFileInfo"
