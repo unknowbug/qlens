@@ -395,7 +395,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     // ── 帮助菜单（协议文档 + 关于）──
     auto *helpMenu = menuBar()->addMenu(T(L"帮助(&H)"));
     helpMenu->addAction(T(L"关于标签协议(&T)"), [this]() {
-        // 打开协议文档（优先 exe 相对 docs/，回退源码目录）
+        // 定位协议文档所在目录（发行版 docs/ 或源码树 docs/），打开目录让用户自选阅读
         QString base = QCoreApplication::applicationDirPath();
         QStringList candidates = {
             base + "/docs/QLENS_TAG_PROTOCOL.md",     // 发行版：exe 旁 docs/
@@ -411,7 +411,8 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
                 T(L"协议文档未找到：") + candidates.first());
             return;
         }
-        QDesktopServices::openUrl(QUrl::fromLocalFile(doc));
+        // 不直接打开 MD（避免语言/编辑器关联问题），打开存放目录让用户自选
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(doc).absolutePath()));
     });
     helpMenu->addSeparator();
     helpMenu->addAction(T(L"关于 QLens(&A)"), [this]() {
