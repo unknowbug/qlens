@@ -83,6 +83,9 @@ public:
     QStringList allImagePaths() const;
     // 重新加载当前文件夹（QC 检测后刷新缩略图/角标）
     void refreshCurrentFolder();
+    // QC 检测后只重画缩略图 QC emoji 角标（不重扫——大目录不卡）
+    void refreshQcBadges();
+    void paintQcEmojis(QPixmap &display, const QStringList &emojis);   // emoji 角标绘制（共享）
 
     // 当前文件夹的全部标签（供工具条候选，主线程汇总）
     QStringList folderTags() const;
@@ -148,5 +151,7 @@ private:
     QString      m_filterTag;
     QStringList  m_filterTags;  // 逗号解析后的多 tag（AND）
     QString      m_filterQc;   // 固定标筛选（与 m_filterTag AND）
+    // QC 标签批量预查缓存（文件名 → QC 标签列表）——applyImageThumb 角标用，避免逐图 SQLite
+    QHash<QString, QStringList> m_qcTagMap;
     int          m_loadToken = 0;
 };

@@ -50,6 +50,8 @@ public:
     static QStringList queryTagsForImage(const QString &folder, const QString &filename);
     static QStringList queryFolderTags(const QString &folder);
     static QStringList queryFilesWithTag(const QString &folder, const QString &tag);
+    // 一次查询整个文件夹的 QC 标签映射（文件名 → QC 标签列表）——缩略图 emoji 角标批量预查
+    static QHash<QString, QStringList> queryFolderQcMap(const QString &folder);
     // 清空当前线程的连接缓存（worker 线程退出前调用）
     static void closeThreadConnection();
 

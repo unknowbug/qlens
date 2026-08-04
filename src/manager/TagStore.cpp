@@ -332,6 +332,24 @@ QStringList TagStore::queryFolderTags(const QString &folder)
     return result;
 }
 
+// 一次查询整个文件夹的 QC 标签映射（文件名 → QC 标签列表）——缩略图 emoji 角标批量预查
+// 替代逐图 tagsForImage（大目录 = N 次 SQLite 查询 → UI 卡），单条 JOIN 一次取完
+QHash<QString, QStringList> TagStore::queryFolderQcMap(const QString &folder)
+{
+    QSqlDatabase db = threadConnection(folder);
+    QHash<QString, QStringList> map;
+    if (!db.isOpen()) return map;
+    QSqlQuery q(db);
+    q.exec("SELECT it.filename, t.name FROM image_tags it "
+           "JOIN tags t ON t.id=it.tag_id WHERE t.category='qc'");
+    while (q.next()) {
+        const QString fn = q.value(0).toString();
+        const QString name = q.value(1).toString();
+        map[fn].append(name);
+    }
+    return map;
+}
+
 void TagStore::closeThreadConnection()
 {
     auto &conns = threadConnections();

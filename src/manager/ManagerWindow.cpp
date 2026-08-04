@@ -892,8 +892,8 @@ void ManagerWindow::runQcDetection() {
             m_statusLabel->setText(T(L"QC 检测完成：") +
                 QStringLiteral("过曝 %1 | 模糊 %2 | 色偏 %3")
                     .arg(nOver).arg(nBlur).arg(nColor));
-            // 刷新缩略图（emoji 角标出现）+ 维持当前 QC 筛选
-            m_grid->refreshCurrentFolder();
+            // 刷新缩略图 QC emoji 角标（不重扫——大目录不卡）+ 维持当前 QC 筛选
+            m_grid->refreshQcBadges();
             m_grid->setFilterQc(m_qcCombo->currentData().toString());
         }
         watcher->deleteLater();

@@ -896,6 +896,9 @@ void ThumbnailGrid::applyScanResult(const ScanResult &res, int token) {
 
     applyFilter();
 
+    // 批量预查 QC 标签（文件名 → QC 标签）：一次 JOIN 替代逐图 tagsForImage（UI 卡主因）
+    m_qcTagMap = TagStore::queryFolderQcMap(m_currentFolder);
+
     // 高亮标签预查（单条 SQL 拿所有命中文件名，替代逐图查询）
     if (!m_highlightTag.isEmpty()) {
         QStringList hitFiles = TagStore::queryFilesWithTag(m_currentFolder, m_highlightTag);
@@ -1030,27 +1033,16 @@ void ThumbnailGrid::applyImageThumb(int row, const QString &path, const QImage &
     if (visibleRow < 0) return;  // 该图被过滤隐藏，不显示
 
     // 固定标（QC）emoji：收集该图命中的固定标，画到缩略图右上角（从右往左）
+    // 用批量预查 map（m_qcTagMap）——不逐图查 SQLite
     QStringList emojis;
     {
-        QStringList tags = m_store->tagsForImage(QFileInfo(path).fileName());
+        const QStringList tags = m_qcTagMap.value(QFileInfo(path).fileName());
         for (auto it = qcEmojiMap().constBegin(); it != qcEmojiMap().constEnd(); ++it)
             if (tags.contains(it.key())) emojis << it.value();
     }
     if (!emojis.isEmpty()) {
         QPixmap display = pix;
-        QPainter p(&display);
-        QFont emojiFont(QStringLiteral("Segoe UI Emoji"));
-        int sz = qMax(7, display.width() / 12);   // emoji 角标——缩小一倍（6→12 分母）
-        emojiFont.setPixelSize(sz);
-        p.setFont(emojiFont);
-        int x = display.width() - 2;
-        for (int i = emojis.size() - 1; i >= 0; --i) {
-            QFontMetrics fm(emojiFont);
-            x -= fm.horizontalAdvance(emojis[i]);
-            p.drawText(QPointF(x, sz + 1), emojis[i]);
-            x -= 2;
-        }
-        p.end();
+        paintQcEmojis(display, emojis);
         m_model->updatePix(visibleRow, display);
         // 同步全量缓存（筛选/取消筛选后不丢缩略图）
         for (ThumbItem &ai : m_allItems)
@@ -1061,6 +1053,45 @@ void ThumbnailGrid::applyImageThumb(int row, const QString &path, const QImage &
     // 同步全量缓存（筛选/取消筛选后不丢缩略图）
     for (ThumbItem &ai : m_allItems)
         if (!ai.isDir && ai.path == path) { ai.pix = pix; break; }
+}
+
+// 把 QC emoji 角标画到缩略图右上角（从右往左）
+void ThumbnailGrid::paintQcEmojis(QPixmap &display, const QStringList &emojis)
+{
+    QPainter p(&display);
+    QFont emojiFont(QStringLiteral("Segoe UI Emoji"));
+    int sz = qMax(7, display.width() / 12);   // emoji 角标——缩小一倍（6→12 分母）
+    emojiFont.setPixelSize(sz);
+    p.setFont(emojiFont);
+    int x = display.width() - 2;
+    for (int i = emojis.size() - 1; i >= 0; --i) {
+        QFontMetrics fm(emojiFont);
+        x -= fm.horizontalAdvance(emojis[i]);
+        p.drawText(QPointF(x, sz + 1), emojis[i]);
+        x -= 2;
+    }
+    p.end();
+}
+
+// QC 检测打标后：只重画现有缩略图的 QC emoji 角标（不重扫——大目录不卡 UI）
+void ThumbnailGrid::refreshQcBadges()
+{
+    if (m_currentFolder.isEmpty()) return;
+    m_qcTagMap = TagStore::queryFolderQcMap(m_currentFolder);
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        const ThumbItem &it = m_model->itemAt(row);
+        if (it.isDir || it.pix.isNull()) continue;
+        const QStringList tags = m_qcTagMap.value(it.name);
+        QStringList emojis;
+        for (auto it2 = qcEmojiMap().constBegin(); it2 != qcEmojiMap().constEnd(); ++it2)
+            if (tags.contains(it2.key())) emojis << it2.value();
+        if (emojis.isEmpty()) continue;
+        QPixmap display = it.pix;
+        paintQcEmojis(display, emojis);
+        m_model->updatePix(row, display);
+        for (ThumbItem &ai : m_allItems)
+            if (!ai.isDir && ai.path == it.path) { ai.pix = display; break; }
+    }
 }
 
 void ThumbnailGrid::applyFolderThumb(int row, const QImage &img, int token) {
