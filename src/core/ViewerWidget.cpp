@@ -201,14 +201,19 @@ void ViewerWidget::navigate(int direction)
 
 // ── 缩放 ──────────────────────────────
 
-// 缩放百分比（0=适配窗口；>0 = 手动缩放，100=100%）
+// 缩放百分比（100=100% 原尺寸；适配模式返回实际显示比例——超大图适配后可能 10~40%）
 double ViewerWidget::zoomPercent() const {
     if (m_zoomFactor > 0.0) return m_zoomFactor * 100.0;
-    return 0.0;   // 适配模式
+    // 适配模式：transform 的 m11 即当前实际显示比例
+    if (m_view) {
+        double m11 = m_view->transform().m11();
+        if (m11 > 0.001) return qMax(5.0, m11 * 100.0);
+    }
+    return 100.0;
 }
 
 void ViewerWidget::setZoomPercent(double pct) {
-    const double clamped = qBound(0.0, pct, 800.0);   // 0=适配，上限 800%
+    const double clamped = qBound(5.0, pct, 400.0);   // 下限 5%（留缩小空间），上限 400%
     const double factor = clamped / 100.0;
     if (qAbs(factor - m_zoomFactor) < 0.001) return;
     m_zoomFactor = factor;

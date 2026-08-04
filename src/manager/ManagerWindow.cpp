@@ -357,6 +357,14 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
         m_sizeSlider->blockSignals(false);
         m_sizeLabel->setText(QString("%1: %2%").arg(T(L"缩放")).arg(v));
     });
+    // 网格 Ctrl+滚轮缩放 → 滑块同步
+    connect(m_grid, &ThumbnailGrid::thumbSizeChanged, [this](int v) {
+        if (m_stack->currentIndex() != 0) return;
+        m_sizeSlider->blockSignals(true);
+        m_sizeSlider->setValue(v);
+        m_sizeSlider->blockSignals(false);
+        m_sizeLabel->setText(QString("%1: %2").arg(T(L"缩略图")).arg(v));
+    });
 
     // ── 菜单 ──
     auto *fm = menuBar()->addMenu(T(L"文件(&F)"));
@@ -775,10 +783,11 @@ void ManagerWindow::updateViewerStatus(const QString &path)
 void ManagerWindow::openInViewer(const QString &path) {
     m_viewer->openFile(path);
     m_stack->setCurrentIndex(1);  // 切到查看页
-    // 滑块切到"图片缩放"模式（0=适配，400=max）
-    m_sizeSlider->setRange(0, 400);
-    m_sizeSlider->setValue((int)qRound(m_viewer->zoomPercent()));
-    m_sizeLabel->setText(QString("%1: %2%").arg(T(L"缩放")).arg((int)qRound(m_viewer->zoomPercent())));
+    // 滑块切到"图片缩放"模式（5%=缩小下限，400% 上限；初始=当前实际缩放——适配结果）
+    m_sizeSlider->setRange(5, 400);
+    const int initZoom = (int)qRound(m_viewer->zoomPercent());
+    m_sizeSlider->setValue(initZoom);
+    m_sizeLabel->setText(QString("%1: %2%").arg(T(L"缩放")).arg(initZoom));
 }
 
 void ManagerWindow::backToGrid() {

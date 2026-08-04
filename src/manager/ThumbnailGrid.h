@@ -78,6 +78,7 @@ public:
     // 缩略图大小（96~640；状态栏滑块 / Ctrl+滚轮 调用）
     void setThumbSize(int size);
     int thumbSize() const { return m_thumbSize; }
+
     // 当前文件夹全部图片路径（QC 批量检测用；文件夹项排除）
     QStringList allImagePaths() const;
     // 重新加载当前文件夹（QC 检测后刷新缩略图/角标）
@@ -100,6 +101,7 @@ signals:
     void imageDoubleClicked(const QString &path);
     void imageClicked(const QString &path);
     void tagsChanged();   // 批量打标/删标后（刷新筛选候选 + 缩略图角标）
+    void thumbSizeChanged(int size);   // Ctrl+滚轮缩放 → 状态栏滑块同步
 
 protected:
     void wheelEvent(QWheelEvent *e) override;

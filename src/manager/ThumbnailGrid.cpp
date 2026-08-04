@@ -1079,6 +1079,7 @@ void ThumbnailGrid::setThumbSize(int size) {
     m_thumbSize = clamped;
     setGridSize(QSize(thumbCellSize(), thumbCellSize()));
     // 已加载缩略图按新尺寸重排（delegate 绘制时缩放）；超大图重解码由 applyImageThumb 按需触发
+    emit thumbSizeChanged(clamped);
 }
 
 void ThumbnailGrid::wheelEvent(QWheelEvent *e) {
