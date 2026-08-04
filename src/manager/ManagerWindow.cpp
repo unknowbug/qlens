@@ -120,6 +120,7 @@ static QString picturesFolder()
 }
 #include <QPushButton>
 #include <QComboBox>
+#include <QSlider>
 #include <QDir>
 #include "thumbnail.h"
 
@@ -329,6 +330,34 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     m_statusLabel->setStyleSheet("color:#888; padding:2px 8px;");
     statusBar()->addPermanentWidget(m_statusLabel);
 
+    // 状态栏左侧：缩略图大小 / 查看器缩放 滑块（view 态自动挂钩图片缩放）
+    m_sizeSlider = new QSlider(Qt::Horizontal, this);
+    m_sizeSlider->setFixedWidth(160);
+    m_sizeSlider->setRange(96, 640);
+    m_sizeSlider->setValue(m_grid->thumbSize());
+    m_sizeLabel = new QLabel(QString("%1: %2").arg(T(L"缩略图")).arg(m_grid->thumbSize()), this);
+    m_sizeLabel->setStyleSheet("color:#888; padding:0 6px;");
+    statusBar()->addWidget(m_sizeLabel);
+    statusBar()->addWidget(m_sizeSlider);
+    connect(m_sizeSlider, &QSlider::valueChanged, [this](int v) {
+        if (m_stack->currentIndex() == 0) {
+            m_grid->setThumbSize(v);
+            m_sizeLabel->setText(QString("%1: %2").arg(T(L"缩略图")).arg(m_grid->thumbSize()));
+        } else {
+            m_viewer->setZoomPercent(v);
+            m_sizeLabel->setText(QString("%1: %2%").arg(T(L"缩放")).arg(v));
+        }
+    });
+    // 查看器缩放变化（F/S/右键/滚轮）→ 滑块同步
+    connect(m_viewer, &ViewerWidget::zoomChanged, [this](double pct) {
+        if (m_stack->currentIndex() != 1) return;
+        const int v = (int)qRound(pct);
+        m_sizeSlider->blockSignals(true);
+        m_sizeSlider->setValue(v);
+        m_sizeSlider->blockSignals(false);
+        m_sizeLabel->setText(QString("%1: %2%").arg(T(L"缩放")).arg(v));
+    });
+
     // ── 菜单 ──
     auto *fm = menuBar()->addMenu(T(L"文件(&F)"));
     fm->addAction(T(L"打开文件夹(&O)..."), [this]() {
@@ -528,45 +557,29 @@ void ManagerWindow::saveLayout() {
     std::wstring ini = I18n::ConfigIniPath(true);
     WritePrivateProfileStringW(L"Layout", L"state",
         QString::fromLatin1(st.toBase64()).toStdWString().c_str(), ini.c_str());
-    // 内部可调 splitter 按比例记录（0~1，不存像素——窗口/分辨率变化不失真）
-    QStringList parts;
-    for (QSplitter *sp : findChildren<QSplitter *>()) {
-        if (sp->objectName().isEmpty()) continue;
-        const QList<int> sz = sp->sizes();
-        int total = 0;
-        for (int v : sz) total += v;
-        if (total <= 0) continue;
-        QStringList ratios;
-        for (int v : sz) ratios << QString::number((double)v / total, 'f', 4);
-        parts << sp->objectName() + "=" + ratios.join(',');
-    }
-    if (!parts.isEmpty())
-        WritePrivateProfileStringW(L"Layout", L"splitter_ratios",
-            parts.join(';').toStdWString().c_str(), ini.c_str());
 }
 
-// 启动恢复：只读 dock 布局 + splitter 比例（窗口永远最大化，不恢复 geometry）
+// 启动恢复：只读 dock 布局（窗口永远最大化，不恢复 geometry）
 bool ManagerWindow::restoreLayout() {
     std::wstring ini = I18n::ConfigIniPath(false);
-    wchar_t stB64[16384] = {}, sp[4096] = {};
+    wchar_t stB64[16384] = {};
     GetPrivateProfileStringW(L"Layout", L"state", L"", stB64, 16384, ini.c_str());
-    GetPrivateProfileStringW(L"Layout", L"splitter_ratios", L"", sp, 4096, ini.c_str());
-    // 清理旧版像素键（geometry/splitter_sizes 不再使用）
+    // 清理旧版键（geometry/splitter_sizes/splitter_ratios 不再使用）
     WritePrivateProfileStringW(L"Layout", L"geometry", nullptr, ini.c_str());
     WritePrivateProfileStringW(L"Layout", L"splitter_sizes", nullptr, ini.c_str());
-    bool ok = stB64[0] != 0 || sp[0] != 0;
+    WritePrivateProfileStringW(L"Layout", L"splitter_ratios", nullptr, ini.c_str());
+    bool ok = stB64[0] != 0;
     if (ok) {
-        // dock/内部比例 → 显示后恢复（不阻塞快速启动）
-        QTimer::singleShot(0, this, [this, stS = QString::fromWCharArray(stB64),
-                                     spS = QString::fromWCharArray(sp)] {
-            restoreDockState(stS, spS);
+        // dock 布局 → 显示后恢复（不阻塞快速启动）
+        QTimer::singleShot(0, this, [this, stS = QString::fromWCharArray(stB64)] {
+            restoreDockState(stS);
         });
     }
     return ok;
 }
 
-// show 后：恢复 dock 布局 + 内部 splitter 比例 + 连接 dock splitter（此后拖动才触发保存）
-void ManagerWindow::restoreDockState(const QString &stB64, const QString &spS) {
+// show 后：恢复 dock 布局 + 连接 dock splitter（内部面板高度不持久化——用户决定不做）
+void ManagerWindow::restoreDockState(const QString &stB64) {
     std::wstring ini = I18n::ConfigIniPath(false);
     if (!stB64.isEmpty()) {
         QByteArray st = QByteArray::fromBase64(stB64.toLatin1());
@@ -580,57 +593,8 @@ void ManagerWindow::restoreDockState(const QString &stB64, const QString &spS) {
             if (m_rightDock) addDockWidget(Qt::RightDockWidgetArea, m_rightDock);
         }
     }
-    // 内部 splitter 按比例恢复（等窗口布局稳定后应用，避免被首次布局覆盖）
-    if (!spS.isEmpty()) {
-        const QStringList parts = spS.split(';', Qt::SkipEmptyParts);
-        for (const QString &p : parts) {
-            const int eq = p.indexOf('=');
-            if (eq <= 0) continue;
-            QSplitter *target = findChild<QSplitter *>(p.left(eq));
-            if (!target) continue;
-            const QStringList rs = p.mid(eq + 1).split(',', Qt::SkipEmptyParts);
-            QList<double> ratios;
-            for (const QString &s : rs) ratios << s.toDouble();
-            if (ratios.size() == target->count()) applySplitterRatios(target, ratios);
-        }
-    }
     // 布局激活后才有 dock splitter：现在连接，拖动分隔条才触发保存
     connectSplitters();
-    // 双保险：下次事件循环再应用一次比例（首次布局事件可能覆盖 setSizes）
-    if (!spS.isEmpty()) {
-        QTimer::singleShot(0, this, [this, spS] {
-            const QStringList parts = spS.split(';', Qt::SkipEmptyParts);
-            for (const QString &p : parts) {
-                const int eq = p.indexOf('=');
-                if (eq <= 0) continue;
-                QSplitter *target = findChild<QSplitter *>(p.left(eq));
-                if (!target) continue;
-                const QStringList rs = p.mid(eq + 1).split(',', Qt::SkipEmptyParts);
-                QList<double> ratios;
-                for (const QString &s : rs) ratios << s.toDouble();
-                if (ratios.size() == target->count()) applySplitterRatios(target, ratios);
-            }
-        });
-    }
-}
-
-// 按比例设置 splitter（0~1 比例 → 当前总长换算像素）
-void ManagerWindow::applySplitterRatios(QSplitter *sp, const QList<double> &ratios) {
-    double sum = 0;
-    for (double r : ratios) sum += r;
-    if (sum <= 0) return;
-    const int total = sp->orientation() == Qt::Vertical ? sp->height() : sp->width();
-    if (total <= 0) return;
-    QList<int> px;
-    double acc = 0;
-    for (double r : ratios) {
-        acc += r / sum * total;
-        px << qMax(1, (int)acc);
-    }
-    int used = 0;
-    for (int i = 0; i < px.size() - 1; ++i) used += px[i];
-    if (!px.isEmpty()) px[px.size() - 1] = qMax(1, total - used);
-    sp->setSizes(px);
 }
 
 // 连接所有 QSplitter（dock 分隔条 + 内部可调栏），拖动触发防抖保存
@@ -811,12 +775,20 @@ void ManagerWindow::updateViewerStatus(const QString &path)
 void ManagerWindow::openInViewer(const QString &path) {
     m_viewer->openFile(path);
     m_stack->setCurrentIndex(1);  // 切到查看页
+    // 滑块切到"图片缩放"模式（0=适配，400=max）
+    m_sizeSlider->setRange(0, 400);
+    m_sizeSlider->setValue((int)qRound(m_viewer->zoomPercent()));
+    m_sizeLabel->setText(QString("%1: %2%").arg(T(L"缩放")).arg((int)qRound(m_viewer->zoomPercent())));
 }
 
 void ManagerWindow::backToGrid() {
     m_stack->setCurrentIndex(0);
     setWindowTitle(QString::fromWCharArray(I18n::Get(L"QLens 管理器")));
     updateGridStatus();
+    // 滑块切回"缩略图大小"模式
+    m_sizeSlider->setRange(96, 640);
+    m_sizeSlider->setValue(m_grid->thumbSize());
+    m_sizeLabel->setText(QString("%1: %2").arg(T(L"缩略图")).arg(m_grid->thumbSize()));
 }
 
 void ManagerWindow::keyPressEvent(QKeyEvent *e) {

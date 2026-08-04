@@ -201,6 +201,20 @@ void ViewerWidget::navigate(int direction)
 
 // ── 缩放 ──────────────────────────────
 
+// 缩放百分比（0=适配窗口；>0 = 手动缩放，100=100%）
+double ViewerWidget::zoomPercent() const {
+    if (m_zoomFactor > 0.0) return m_zoomFactor * 100.0;
+    return 0.0;   // 适配模式
+}
+
+void ViewerWidget::setZoomPercent(double pct) {
+    const double clamped = qBound(0.0, pct, 800.0);   // 0=适配，上限 800%
+    const double factor = clamped / 100.0;
+    if (qAbs(factor - m_zoomFactor) < 0.001) return;
+    m_zoomFactor = factor;
+    updateZoom();
+}
+
 void ViewerWidget::updateZoom()
 {
     if (m_original.isNull() || !m_pixmapItem) return;
@@ -229,6 +243,7 @@ void ViewerWidget::updateZoom()
         m_view->fitInView(br, Qt::KeepAspectRatio);
     }
     m_view->viewport()->update();  // 强制重绘（缩放/适配后立即生效）
+    emit zoomChanged(zoomPercent());   // 状态栏滑块同步
 }
 
 // 旋转 90°（dir=1 顺时针，-1 逆时针）

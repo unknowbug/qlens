@@ -34,8 +34,7 @@ protected:
 
 private:
     // 界面布局持久化（dock/几何 → qlens_config.ini [Layout]；动了界面就自动保存）
-    void restoreDockState(const QString &stB64, const QString &spS);  // show 后：恢复 dock 布局 + 内部 splitter 比例
-    void applySplitterRatios(QSplitter *sp, const QList<double> &ratios);  // 比例 → 像素 setSizes
+    void restoreDockState(const QString &stB64);  // show 后：恢复 dock 布局（内部面板高度不持久化）
     void connectSplitters();       // 连接所有 QSplitter（dock 分隔条/内部栏），拖动触发防抖保存
     void saveLayout();             // 立即保存（状态有变化才写盘）
     void scheduleLayoutSave();     // 防抖：600ms 后保存（拖动/移动过程不频繁写盘）
@@ -71,6 +70,9 @@ private:
     QPushButton *m_upBtn = nullptr;
     QStringList  m_history;
     int          m_historyPos = -1;
+    // 状态栏左侧：缩略图大小 / 查看器缩放 滑块（view 态挂钩图片缩放）
+    QSlider *m_sizeSlider = nullptr;
+    QLabel  *m_sizeLabel  = nullptr;
 
     TagStore      *m_store   = nullptr;
     QStackedWidget *m_stack  = nullptr;

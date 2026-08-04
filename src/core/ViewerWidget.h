@@ -22,10 +22,14 @@ public:
     int  currentIndex() const { return m_currentIndex; }
     int  siblingCount() const { return (int)m_siblings.size(); }
     QString currentFile() const { return m_currentFile; }
+    // 缩放百分比（100=1.0；适配窗口时按实际显示比例估算）——状态栏滑块用
+    double zoomPercent() const;
+    void setZoomPercent(double pct);
 
 signals:
     void imageChanged(const QString &filePath, int index);
     void backRequested();
+    void zoomChanged(double pct);   // 缩放/适配变化（滑块同步）
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;

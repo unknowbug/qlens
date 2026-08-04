@@ -1073,11 +1073,18 @@ void ThumbnailGrid::applyFolderThumb(int row, const QImage &img, int token) {
     m_allItems[row].pix = QPixmap::fromImage(img);
 }
 
+void ThumbnailGrid::setThumbSize(int size) {
+    const int clamped = std::clamp(size, 96, 640);
+    if (clamped == m_thumbSize) return;
+    m_thumbSize = clamped;
+    setGridSize(QSize(thumbCellSize(), thumbCellSize()));
+    // 已加载缩略图按新尺寸重排（delegate 绘制时缩放）；超大图重解码由 applyImageThumb 按需触发
+}
+
 void ThumbnailGrid::wheelEvent(QWheelEvent *e) {
     if (e->modifiers() & Qt::ControlModifier) {
         int d = e->angleDelta().y() / 120;
-        m_thumbSize = std::clamp(m_thumbSize + d * 32, 80, 320);
-        setGridSize(QSize(thumbCellSize(), thumbCellSize()));
+        setThumbSize(m_thumbSize + d * 32);
         return;
     }
     QListView::wheelEvent(e);

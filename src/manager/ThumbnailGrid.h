@@ -75,6 +75,9 @@ public:
     // 过滤模式：只显示命中标签的图片（空 = 不过滤）
     void setFilterTag(const QString &tag);   // 逗号分隔多 tag = AND
     void setFilterQc(const QString &qc);
+    // 缩略图大小（96~640；状态栏滑块 / Ctrl+滚轮 调用）
+    void setThumbSize(int size);
+    int thumbSize() const { return m_thumbSize; }
     // 当前文件夹全部图片路径（QC 批量检测用；文件夹项排除）
     QStringList allImagePaths() const;
     // 重新加载当前文件夹（QC 检测后刷新缩略图/角标）

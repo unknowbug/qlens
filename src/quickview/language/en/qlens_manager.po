@@ -383,3 +383,9 @@ msgstr "Remove Tags (batch)..."
 
 msgid "设置颜色..."
 msgstr "Set Color..."
+
+msgid "缩略图"
+msgstr "Thumbnails"
+
+msgid "缩放"
+msgstr "Zoom"
