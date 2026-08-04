@@ -11,6 +11,8 @@ add_executable(qlens_manager WIN32
     FileIcons.cpp
     TagStore.cpp
     ${CMAKE_SOURCE_DIR}/src/core/ViewerWidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/crashlog.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/crashlog.h
     ${QLENS_RC}
     qlens.qrc
 )

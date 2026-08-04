@@ -1,4 +1,6 @@
 #include <QApplication>
+#include <QTimer>
+#include <QMessageBox>
 #include <QIcon>
 #include <QDateTime>
 #include <QFile>
@@ -18,6 +20,7 @@ extern "C" bool QLensPlugins_LoadFromExeDir();
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+#include "../common/crashlog.h"
 #include <dbghelp.h>
 #pragma comment(lib, "dbghelp.lib")
 #endif
@@ -62,28 +65,25 @@ static void logHandler(QtMsgType type, const QMessageLogContext &ctx, const QStr
 
 int main(int argc, char *argv[]) {
 #ifdef Q_OS_WIN
-    // 抓 SEH 硬崩溃（访问违规等不走 qFatal），打印调用栈到日志
-    SetUnhandledExceptionFilter([](EXCEPTION_POINTERS *ep) -> LONG {
-        QMutexLocker lock(&g_logMutex);
-        if (g_logFile.isOpen()) {
-            QTextStream ts(&g_logFile);
-            ts << "--- SEH exception code=0x"
-               << QString::number((quint32)ep->ExceptionRecord->ExceptionCode, 16)
-               << " ---\n";
-            void *stack[32];
-            USHORT frames = CaptureStackBackTrace(0, 32, stack, nullptr);
-            ts << "--- call stack (" << frames << " frames) ---\n";
-            for (USHORT i = 0; i < frames; ++i)
-                ts << "  " << stack[i] << "\n";
-            ts.flush();
-        }
-        return EXCEPTION_CONTINUE_SEARCH;
-    });
+    // 崩溃捕获（SEH 硬崩溃 → %APPDATA%/QLens Manager/crash.log：版本/系统/调用栈+模块偏移）
+    CrashLog_Init(L"QLens Manager", L"0.2.1");
 #endif
 
     QApplication app(argc, argv);
     app.setApplicationName("QLens Manager");
     app.setWindowIcon(QIcon(":/app.ico"));  // 窗口/任务栏图标
+
+    // 上次崩溃提示（延迟到 UI 就绪）：告知用户崩溃日志位置，方便发送给开发者
+    QTimer::singleShot(800, []() {
+        if (CrashLog_HasRecentCrash()) {
+            wchar_t path[MAX_PATH];
+            CrashLog_Path(path, MAX_PATH);
+            QMessageBox::warning(nullptr, QStringLiteral("QLens 崩溃提示"),
+                QStringLiteral("上次运行 QLens 时发生崩溃。\n\n崩溃日志（含版本/系统/调用栈）：\n%1\n\n"
+                               "请将此文件发送给开发者（GitHub Issue / 邮件），便于定位修复。")
+                    .arg(QString::fromWCharArray(path)));
+        }
+    });
 
     // 打开崩溃日志（%APPDATA%/QLens Manager/qlens_crash.log）
     QString logPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);

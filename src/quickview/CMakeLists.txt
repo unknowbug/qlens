@@ -24,6 +24,8 @@ add_executable(qlens_quickview WIN32
     hdr.h
     i18n.cpp
     i18n.h
+    ../common/crashlog.cpp
+    ../common/crashlog.h
     qlens.rc
 )
 target_link_libraries(qlens_quickview PRIVATE qlens_decode d3d11 dxgi dwmapi d3dcompiler comdlg32 msimg32)

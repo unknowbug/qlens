@@ -1,6 +1,7 @@
 ﻿#include <windows.h>
 #include <stdio.h>
 #include "i18n.h"
+#include "../common/crashlog.h"
 
 #define IDI_QLENS 101  // qlens.rc 图标资源
 
@@ -13,30 +14,6 @@ void LoadFileByPath(HWND, const wchar_t*);
 void SetStartMonitorIndex(int);
 void RegisterFileAssociations();
 
-static LONG WINAPI CrashFilter(EXCEPTION_POINTERS *ep)
-{
-    // 崩溃日志写到 %APPDATA%/QLens/（exe 目录可能只读——分发兼容）
-    wchar_t logPath[MAX_PATH];
-    if (GetEnvironmentVariableW(L"APPDATA", logPath, MAX_PATH) && logPath[0]) {
-        wcscat_s(logPath, MAX_PATH, L"\\QLens");
-        CreateDirectoryW(logPath, nullptr);
-        wcscat_s(logPath, MAX_PATH, L"\\crash.log");
-    } else {
-        GetModuleFileNameW(nullptr, logPath, MAX_PATH);
-        wchar_t *sl = wcsrchr(logPath, L'\\');
-        if (sl) wcscpy_s(sl + 1, MAX_PATH - (sl - logPath), L"crash.log");
-    }
-    FILE *f = nullptr;
-    _wfopen_s(&f, logPath, L"a");
-    if (f) {
-        fprintf(f, "CRASH code=0x%08lX at=%p\n",
-            (unsigned long)ep->ExceptionRecord->ExceptionCode,
-            ep->ExceptionRecord->ExceptionAddress);
-        fclose(f);
-    }
-    return EXCEPTION_CONTINUE_SEARCH;
-}
-
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
 {
     // 高 DPI 感知（Win10 1703+ Per-Monitor V2）——分发到高分屏不模糊/不错位
@@ -46,7 +23,16 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
         auto fn = (SetDpiCtxFn)GetProcAddress(user32, "SetProcessDpiAwarenessContext");
         if (fn) fn(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
-    SetUnhandledExceptionFilter(CrashFilter);
+    CrashLog_Init(L"QLens", L"0.2.1");   // 崩溃捕获：版本/系统/调用栈+模块偏移 → %APPDATA%\QLens\crash.log
+    if (CrashLog_HasRecentCrash()) {
+        wchar_t path[MAX_PATH];
+        CrashLog_Path(path, MAX_PATH);
+        wchar_t msg[1024];
+        swprintf_s(msg, 1024,
+            L"上次运行 QLens 时发生崩溃。\n\n崩溃日志（含版本/系统/调用栈）：\n%ls\n\n请将此文件发送给开发者，便于定位修复。",
+            path);
+        MessageBoxW(nullptr, msg, L"QLens 崩溃提示", MB_ICONWARNING | MB_OK);
+    }
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     WNDCLASSW wc = {};
     wc.style = CS_DBLCLKS;  // 支持双击（WM_LBUTTONDBLCLK）
