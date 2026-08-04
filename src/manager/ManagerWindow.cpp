@@ -366,6 +366,11 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
         m_sizeSlider->setValue(v);
         m_sizeSlider->blockSignals(false);
         m_sizeLabel->setText(QString("%1: %2").arg(T(L"缩略图")).arg(v));
+        // 持久化缩略图大小（重启恢复）
+        wchar_t buf[16];
+        swprintf_s(buf, 16, L"%d", v);
+        std::wstring ini = I18n::ConfigIniPath(true);
+        WritePrivateProfileStringW(L"View", L"thumb_size", buf, ini.c_str());
     });
 
     // ── 菜单 ──
@@ -536,6 +541,14 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
 
     // 程序被剪切/移动后自动重注册关联（静默——防右键菜单出现无效应用）
     checkAssociationsOnStart();
+
+    // 恢复上次的缩略图大小（[View] thumb_size；默认 160）
+    {
+        std::wstring ini = I18n::ConfigIniPath(false);
+        wchar_t ts[16] = {};
+        GetPrivateProfileStringW(L"View", L"thumb_size", L"", ts, 16, ini.c_str());
+        if (ts[0]) m_grid->setThumbSize(_wtoi(ts));
+    }
 
     // ── 界面布局持久化：dock 拖动/可见性/窗口移动缩放 → 防抖自动保存 ──
     m_layoutTimer = new QTimer(this);
