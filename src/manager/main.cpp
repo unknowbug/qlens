@@ -98,8 +98,19 @@ int main(int argc, char *argv[]) {
     I18n::LoadForApp(L"qlens_manager");
 
     ManagerWindow w;
-    if (!w.restoreLayout())    // 有保存的界面布局 → 恢复；首次启动 → 默认最大化
-        w.showMaximized();
+    // 布局自愈：上次正常关闭（trusted=1）才恢复布局；恢复前先降级（防恢复本身崩溃死循环）
+    {
+        std::wstring ini = I18n::ConfigIniPath(false);
+        wchar_t trusted[8] = {};
+        GetPrivateProfileStringW(L"Layout", L"trusted", L"", trusted, 8, ini.c_str());
+        if (trusted[0] == L'1') {
+            std::wstring iniW = I18n::ConfigIniPath(true);
+            WritePrivateProfileStringW(L"Layout", L"trusted", L"0", iniW.c_str());
+            w.restoreLayout();
+        } else {
+            w.showMaximized();   // 首次启动 / 上次异常退出 → 默认最大化
+        }
+    }
     // 命令行参数：目录 → 启动后打开（语言切换自动重启保留路径）
     if (argc > 1) {
         const QString p = QString::fromLocal8Bit(argv[1]);

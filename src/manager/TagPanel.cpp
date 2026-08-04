@@ -26,6 +26,7 @@ TagPanel::TagPanel(TagStore *store, QWidget *parent)
 
     // 可拖动分割：上=已分配标签（2/3），下=输入栏（1/3，默认）
     auto *splitter = new QSplitter(Qt::Vertical, this);
+    splitter->setObjectName("tagPanelSplitter");   // 布局持久化定位
     splitter->setChildrenCollapsible(false);
 
     // ── 上半：已分配标签 ──

@@ -312,6 +312,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     leftDock->setObjectName("browse");
     leftDock->setWidget(m_folderPanel);
     addDockWidget(Qt::LeftDockWidgetArea, leftDock);
+    m_leftDock = leftDock;
 
     // ── 右侧 Dock：标签面板 ──
     m_tagPanel = new TagPanel(m_store, this);
@@ -319,6 +320,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     rightDock->setObjectName("tags");
     rightDock->setWidget(m_tagPanel);
     addDockWidget(Qt::RightDockWidgetArea, rightDock);
+    m_rightDock = rightDock;
 
     // ── 状态栏 ──
     m_statusLabel = new QLabel(T(L"就绪"), this);
@@ -530,14 +532,26 @@ void ManagerWindow::saveLayout() {
         QString::fromLatin1(geo.toBase64()).toStdWString().c_str(), ini.c_str());
     WritePrivateProfileStringW(L"Layout", L"state",
         QString::fromLatin1(st.toBase64()).toStdWString().c_str(), ini.c_str());
+    // 内部可调 splitter 比例（TagPanel 输入/显示栏等）——QMainWindow::saveState 不含这些
+    QStringList parts;
+    for (QSplitter *sp : findChildren<QSplitter *>()) {
+        if (sp->objectName().isEmpty()) continue;
+        QStringList sz;
+        for (int v : sp->sizes()) sz << QString::number(v);
+        parts << sp->objectName() + "=" + sz.join(',');
+    }
+    if (!parts.isEmpty())
+        WritePrivateProfileStringW(L"Layout", L"splitter_sizes",
+            parts.join(';').toStdWString().c_str(), ini.c_str());
 }
 
 // 启动恢复；返回是否有保存的布局（无 → 调用方维持默认最大化）
 bool ManagerWindow::restoreLayout() {
     std::wstring ini = I18n::ConfigIniPath(false);
-    wchar_t geoB64[16384] = {}, stB64[16384] = {};
+    wchar_t geoB64[16384] = {}, stB64[16384] = {}, sp[4096] = {};
     GetPrivateProfileStringW(L"Layout", L"geometry", L"", geoB64, 16384, ini.c_str());
     GetPrivateProfileStringW(L"Layout", L"state", L"", stB64, 16384, ini.c_str());
+    GetPrivateProfileStringW(L"Layout", L"splitter_sizes", L"", sp, 4096, ini.c_str());
     bool ok = geoB64[0] != 0 || stB64[0] != 0;
     if (geoB64[0]) {
         QByteArray geo = QByteArray::fromBase64(QString::fromWCharArray(geoB64).toLatin1());
@@ -546,13 +560,40 @@ bool ManagerWindow::restoreLayout() {
     }
     if (stB64[0]) {
         QByteArray st = QByteArray::fromBase64(QString::fromWCharArray(stB64).toLatin1());
-        restoreState(st);
-        m_lastLayoutState = st;
+        if (restoreState(st)) {
+            m_lastLayoutState = st;
+        } else {
+            // 坏 state：清除并重建默认 dock 布局（防反复启动失败）
+            WritePrivateProfileStringW(L"Layout", L"state", nullptr, ini.c_str());
+            if (m_leftDock)  addDockWidget(Qt::LeftDockWidgetArea, m_leftDock);
+            if (m_rightDock) addDockWidget(Qt::RightDockWidgetArea, m_rightDock);
+            ok = geoB64[0] != 0;
+        }
+    }
+    // 内部 splitter 比例（TagPanel 输入/显示栏）
+    if (sp[0]) {
+        const QStringList parts = QString::fromWCharArray(sp).split(';', Qt::SkipEmptyParts);
+        for (const QString &p : parts) {
+            const int eq = p.indexOf('=');
+            if (eq <= 0) continue;
+            QSplitter *target = findChild<QSplitter *>(p.left(eq));
+            if (!target) continue;
+            const QStringList szs = p.mid(eq + 1).split(',', Qt::SkipEmptyParts);
+            QList<int> vals;
+            for (const QString &s : szs) vals << s.toInt();
+            if (vals.size() == target->count()) target->setSizes(vals);
+        }
     }
     return ok;
 }
 
-void ManagerWindow::closeEvent(QCloseEvent *e) { saveLayout(); QMainWindow::closeEvent(e); }
+void ManagerWindow::closeEvent(QCloseEvent *e) {
+    saveLayout();
+    // 正常关闭标记：下次启动才恢复布局（崩溃/异常退出 → 自愈跳过恢复）
+    std::wstring ini = I18n::ConfigIniPath(true);
+    WritePrivateProfileStringW(L"Layout", L"trusted", L"1", ini.c_str());
+    QMainWindow::closeEvent(e);
+}
 void ManagerWindow::moveEvent(QMoveEvent *e)   { QMainWindow::moveEvent(e); scheduleLayoutSave(); }
 void ManagerWindow::resizeEvent(QResizeEvent *e) { QMainWindow::resizeEvent(e); scheduleLayoutSave(); }
 

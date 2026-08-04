@@ -70,6 +70,8 @@ private:
 
     TagStore      *m_store   = nullptr;
     QStackedWidget *m_stack  = nullptr;
+    QDockWidget *m_leftDock  = nullptr;   // 左侧浏览 dock（restoreState 失败时重建默认布局用）
+    QDockWidget *m_rightDock = nullptr;   // 右侧标签 dock
     ThumbnailGrid *m_grid    = nullptr;
     FolderPanel   *m_folderPanel = nullptr;
     TagPanel      *m_tagPanel = nullptr;
