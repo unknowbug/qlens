@@ -315,10 +315,19 @@ void ViewerWidget::wheelEvent(QWheelEvent *e)
     if (e->modifiers() & Qt::ControlModifier) {
         double d = e->angleDelta().y() / 120.0;
         if (d > 0) {
-            if (m_zoomFactor <= 0.0) m_zoomFactor = 1.0;
+            // 适配态（zoomFactor<=0）：从当前实际显示比例继续放大，不跳回 100%
+            if (m_zoomFactor <= 0.0) {
+                double m11 = m_view ? m_view->transform().m11() : 0.0;
+                m_zoomFactor = (m11 > 0.001) ? m11 : 1.0;
+            }
             m_zoomFactor = std::min(m_zoomFactor * 1.15, 10.0);
-        } else if (m_zoomFactor > 0.0) {
-            m_zoomFactor = std::max(m_zoomFactor / 1.15, 0.0);
+        } else if (d < 0) {
+            // 适配态缩小同理：从当前显示比例继续
+            if (m_zoomFactor <= 0.0) {
+                double m11 = m_view ? m_view->transform().m11() : 0.0;
+                m_zoomFactor = (m11 > 0.001) ? m11 : 1.0;
+            }
+            m_zoomFactor = std::max(m_zoomFactor / 1.15, 0.02);   // 下限 2%
         }
         updateZoom();
     } else {
