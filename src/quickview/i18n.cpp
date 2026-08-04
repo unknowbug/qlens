@@ -163,10 +163,15 @@ bool LoadForApp(const wchar_t *appName)
     // zh → 默认中文（无需 .po）
     if (_wcsicmp(lang, L"zh") == 0) return true;
 
-    // 加载 language/<code>/<app>.po
+    // 加载 language/<code>/<app>.po；无匹配 → 回退英文
     wchar_t poPath[MAX_PATH];
     swprintf_s(poPath, MAX_PATH, L"%s\\language\\%s\\%s.po", exeDir, lang, appName);
-    return Load(poPath);
+    if (Load(poPath)) return true;
+    if (_wcsicmp(lang, L"en") != 0) {
+        swprintf_s(poPath, MAX_PATH, L"%s\\language\\en\\%s.po", exeDir, appName);
+        return Load(poPath);
+    }
+    return false;
 }
 
 bool LoadFromConfig()
