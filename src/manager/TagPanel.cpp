@@ -6,6 +6,7 @@
 #include <QStringListModel>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QColorDialog>
 #include <QAction>
 
 // 翻译辅助：msgid=中文，默认中文；.po 覆盖为目标语言
@@ -43,9 +44,18 @@ TagPanel::TagPanel(TagStore *store, QWidget *parent)
         if (!item) return;
         QMenu menu(this);
         QAction *remove = menu.addAction(T(L"移除标签"));
-        if (menu.exec(m_assignedTags->mapToGlobal(pos)) == remove) {
+        QAction *colorAct = menu.addAction(T(L"设置颜色..."));
+        QAction *sel2 = menu.exec(m_assignedTags->mapToGlobal(pos));
+        if (sel2 == remove) {
             m_store->removeImageTag(QFileInfo(m_currentImage).fileName(), item->text());
             refresh();
+        } else if (sel2 == colorAct) {
+            QColor c = QColorDialog::getColor(
+                QColor(m_store->tagColor(item->text())), this, T(L"标签颜色"));
+            if (c.isValid()) {
+                m_store->setTagColor(item->text(), c.name());
+                refresh();
+            }
         }
     });
     ul->addWidget(m_assignedTags, 1);
@@ -116,7 +126,20 @@ bool TagPanel::eventFilter(QObject *obj, QEvent *ev)
 
 void TagPanel::setCurrentImage(const QString &imagePath) {
     m_currentImage = imagePath;
+    m_tagInput->setEnabled(true);
+    m_tagInput->setPlaceholderText(T(L"输入标签（用 , 分隔）+ 回车..."));
     refresh();
+}
+
+// 多选状态：右侧标签面板显示占位，禁用单图打标输入
+void TagPanel::showMultiSelection(int count) {
+    m_currentImage.clear();
+    m_assignedTags->clear();
+    auto *item = new QListWidgetItem(T(L"已选中 %1 张——打标请用右键批量").arg(count));
+    item->setForeground(QColor(150, 150, 150));
+    m_assignedTags->addItem(item);
+    m_tagInput->setEnabled(false);
+    m_tagInput->setPlaceholderText(T(L"多选：右键批量添加/移除标签"));
 }
 
 void TagPanel::addTagFromInput() {
@@ -141,7 +164,14 @@ void TagPanel::refresh() {
     m_assignedTags->clear();
     if (m_currentImage.isEmpty()) return;
     QStringList tags = m_store->tagsForImage(QFileInfo(m_currentImage).fileName());
-    for (const QString &t : tags)
-        m_assignedTags->addItem(t);
+    for (const QString &t : tags) {
+        auto *item = new QListWidgetItem(t);
+        // 色点：tag 有 color 字段则显示色块图标（未设置 = 灰）
+        QString col = m_store->tagColor(t);
+        QPixmap sw(14, 14);
+        sw.fill(QColor(col.isEmpty() ? QStringLiteral("#444") : col));
+        item->setIcon(QIcon(sw));
+        m_assignedTags->addItem(item);
+    }
     emit tagsChanged(m_currentImage, tags);
 }

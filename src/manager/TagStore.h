@@ -22,9 +22,17 @@ public:
     bool isOpen() const { return m_db.isOpen(); }
 
     // 标签 CRUD
-    int  addTag(const QString &name, const QString &category = QString());
+    int  addTag(const QString &name, const QString &category = QString(), const QString &icon = QString());
     void removeTag(int tagId);
     QStringList allTagNames() const;
+    // 标签颜色（tags.color 字段；空 = 未设置）
+    QString tagColor(const QString &name) const;
+    void setTagColor(const QString &name, const QString &color);
+    // 固定标（QC）：category='qc' 的 tag 名列表
+    QStringList qcTagNames() const;
+    // 固定标（QC）：tag 的 icon（非空 = 固定标，缩略图右上角显示）
+    QString tagIcon(const QString &name) const;
+    void ensureQcTags();
 
     // 图片标签（filename = 纯文件名，如 "001.jpg"）
     bool addImageTag(const QString &filename, const QString &tagName);

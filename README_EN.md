@@ -2,170 +2,38 @@
 
 <img src="assets/QLens.png" width="64" align="left" style="margin-right:12px" />
 
-> **QLens is an image viewer — and more importantly, it provides a universal image-tagging protocol designed for the AI era.**
+> **QLens is a lightweight image viewer + tag manager designed for the AI era.**
 
-[English](README_EN.md) · 中文
+English · [中文](README.md)
 
-A lightweight image viewer + manager built around an open tagging protocol (`qltag.db`),
-letting any software, script, or agent read and write image tags.
-
----
-
-## Why does QLens exist?
-
-### Origin one: nothing views photos like Picasa anymore
-
-Anyone who used Picasa knows that experience: **light, fast, clean** — double-click to view,
-no UI getting in the way, browsing that just feels right. Picasa has long been discontinued.
-What replaced it?
-
-- **ACDSee and the like**: full-featured but heavy — slow startup, toolbar-cluttered UI,
-  viewing a photo feels like running heavy software
-- **Other viewers**: light but poor browsing experience, or decent experience but not light at all
-
-QLens started as an attempt to bring back that light, fast, clean viewing experience —
-**QLens is first and foremost a capable viewer**, filling the gap Picasa left behind.
-
-### Origin two: viewers are all missing one thing
-
-Everyone has folders full of photos — weddings, trips, snapshots, work assets. Viewers today
-can open, zoom, and flip through images fast and beautifully, but none of them can answer:
-
-> "Which of the 200 photos I took at the beach last year have closed eyes?"
-
-Photos live on disk, memories live in your head — and between them sits a missing layer: **tags**.
-QLens is first and foremost a capable viewer; its real value is adding that missing tag layer to "viewing photos".
-
-### The turning point: AI made tagging possible for the first time
-
-Tagging photos used to be pure drudgery: manually writing "wedding", "beach", "closed_eyes"
-one by one. With AI, recognizing image content became a few lines of code. But AI tagging
-brought a new problem:
-
-**Vision models charge by the image — a single 4K original can burn tens of thousands of tokens.**
-If you feed original images straight to an agent, one batch-tagging session can blow
-a large chunk of their budget.
-
-### And so QLens's core tension emerged
-
-- You want **AI-powered flexibility** (letting an agent organize your library however you like)
-- But batch tagging **requires pre-compression and batching**, or tokens explode
-- These two directions pull against each other: agent-driven vs program-controlled
-
-### Our answer: separate the "protocol" from the "execution"
-
-```
-QLens Manager ── MCP (tied to Manager lifecycle; batch analysis auto-pre-compresses)
-      │
-      └─ qltag.db (one per folder, open protocol) ── you read/write freely with your own agents
-```
-
-- **MCP layer**: Agents want to play? Nine tools, call them freely. Need batch tagging? Go through
-  `qlens_analyze` — the program pre-compresses before analysis, so tokens don't burn.
-- **Protocol layer**: Tag data lives in a `qltag.db` in every folder, format fully open. Once you
-  understand it, you can **design your own extensions** — your own scripts, your own agents, any
-  tool, any time, without QLens even running.
-
-QLens owns *how tags get written* (execution); *what you do with tagged photos* (the playbook) is entirely yours.
-
-> **QLens is first an image viewer; what it truly delivers is a tagging protocol designed for the AI era, plus an execution engine that stops AI from burning your tokens.**
-
----
-
-## QuickView (qlens_quickview)
-
-**Current primary image viewer** — native Win32 + D3D11, no Qt dependency, exe only **~160KB**.
-
-### Highlights
-
-| Feature | Description |
-|---------|-------------|
-| **True HDR support** | 16F full-precision passthrough pipeline — JXR/high-bitdepth HEIC/AVIF HDR brightness displayed correctly (1.0=80nit scRGB physical standard), SDR images get SDR→HDR upconversion |
-| **Ultra small** | Single exe ~160KB, no Qt/runtime dependency (WIC decode + system DLLs) |
-| **Instant launch** | Native Win32 minimalist architecture, opens immediately |
-| **Minimal but complete** | Zoom/page/thumbnail strip/rotate/copy/save-as/delete/context menu/fullscreen — everything a viewer needs, nothing more |
-| **Picasa-style copy** | `Ctrl+C` bitmap = **current window size** (what-you-see-is-what-you-get) — pasting huge images into QQ/WeChat etc. won't blow the bitmap size limit; also provides file (CF_HDROP) + path (CF_UNICODETEXT) formats |
-| **HDR calibration** | Built-in `gen_hdrtest.exe` generates 0-10000nit block test image — customers can verify their monitor's real HDR peak |
-| **Plugin extension** | Decode plugins (HEIC/SVG etc.) dynamically loaded — new formats supported by adding a DLL |
-
-### Shortcuts
-
-```
-Wheel           Page (Ctrl+Wheel = zoom)
-←/→             Previous/next
-F / S           100% original / fit window
-Q / E           Rotate left/right
-Ctrl+C          Copy (bitmap=window size + file + path)
-Ctrl+Shift+S    Save as
-Del             Delete to recycle bin
-F12             DEBUG info (format/monitor/HDR state)
---monitor N     Start on specified monitor
-```
-
-## Components
+QLens is built around an open image-tagging protocol (`qltag.db`) that any
+software, script, or AGENT can read and write:
 
 | Component | Description |
-|-----------|-------------|
-| **qlens_quick** (C++/Qt) | Minimal viewer: drag-and-drop, thumbnail strip, zoom / page navigation |
-| **qlens_manager** (C++/Qt) | Library manager: folder tree + virtualized thumbnail grid + tag panel |
-| **qlens MCP Server** (Python) | Exposes library operations to any MCP client (Claude / CherryStudio / Cursor) |
-| **qltag.db protocol** | Open tag storage format, freely extensible |
+|---|---|
+| **QLens QuickView** | Native Win32 + D3D11 ultra-fast viewer — instant start, **HDR rendering**, WIC full-format + decoder plugins |
+| **QLens Manager** | Qt file-manager style — thumbnail browsing, **tag management** (assign/color/combo filter), **QC inspection** (auto-detect overexposure/blur/color-cast) |
+| **QLens MCP Server** | Opens your image library to AI clients (Claude / Cursor, etc.) — search/tag/statistics/batch analysis |
 
-## Core design
+## Quick Start
 
-- **One `qltag.db` per folder** (hidden file): tags travel with the folder — copy or move, tags follow
-- **Pure filenames**: each DB lives in the folder it manages, naturally tree-structured and recursive
-- **WAL concurrency**: Manager and multiple agents can read/write simultaneously
-- **MCP tied to Manager**: QLens pre-compresses images internally before batch tagging, so agents never upload originals and burn tokens
-
-## Quick start
-
-### View images (QuickView)
-```powershell
-.\build\bin\Debug\qlens_quick.exe
+```
+bin/qlens_quickview.exe  double-click or drag an image to view (F=100%, S=fit window, wheel=paging)
+bin/qlens_manager.exe    browse folders, tag images, run QC detection (double-click image to view)
 ```
 
-### Manager + tags (Manager)
-```powershell
-.\build\bin\Debug\qlens_manager.exe
-```
+**System requirements**: Windows 10 1809+ (HDR features need an HDR display; HEIC/AVIF etc. need WIC extension or decoder plugin).
 
-### MCP (external agents)
-1. Start `qlens_manager.exe` first (MCP depends on Manager)
-2. Configure in your MCP client:
-```json
-{
-  "mcpServers": {
-    "qlens": {
-      "command": "python",
-      "args": ["E:/PYTHON/qlens/src/mcp/server.py"],
-      "cwd": "E:/PYTHON/qlens/src/mcp"
-    }
-  }
-}
-```
+## Documentation
 
-## Docs
-
-- [Tag protocol (qltag.db)](src/mcp/QLENS_TAG_PROTOCOL.md) — open data format ([中文](src/mcp/QLENS_TAG_PROTOCOL.md))
-- [MCP design notes](src/mcp/README.md) — why MCP ties to Manager + tool list ([中文](src/mcp/README.md))
-
-## Build
-
-```bash
-cmake -B build
-cmake --build build
-```
-
-Dependencies: Qt 6 (Core/Gui/Widgets/Sql), LibRaw, LCMS2 (auto-detected by CMake).
+- [Overview](docs/en/01-overview.md) — design philosophy & the three components
+- [QuickView Manual](docs/en/02-quickview.md) — shortcuts / HDR / plugins
+- [Manager Manual](docs/en/03-manager.md) — file management / tags / QC / batch
+- [Tag Protocol Spec](docs/en/QLENS_TAG_PROTOCOL.md) — `qltag.db` schema & classification ★
+- [MCP Server](docs/en/05-mcp.md) — tools / setup / examples
+- [Plugin Development](docs/en/06-plugin-dev.md) — decoder plugin API
+- [Build & Release](docs/en/07-build.md) — dependencies / build / system requirements
 
 ## License
 
-QLens uses a **dual license**:
-
-- **QuickView viewer** (`src/quickview/`): **Apache-2.0** — free and open source
-- **Manager** (`src/manager/`, `src/core/`, `src/mcp/`): **Business Source License 1.1** — free for personal/non-commercial use; commercial use requires a license
-
-**The image tagging protocol (`qltag.db` format + `docs/`) is fully open**, not restricted by the licenses above — you can build your own tools compatible with the protocol.
-
-See [LICENSE](LICENSE).
+[LICENSE](LICENSE)

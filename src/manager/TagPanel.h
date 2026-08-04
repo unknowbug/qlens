@@ -15,6 +15,8 @@ public:
 
     // 切换当前图片，加载其标签
     void setCurrentImage(const QString &imagePath);
+    // 多选状态：显示占位提示并禁用打标输入（批量请用右键）
+    void showMultiSelection(int count);
 
 signals:
     void tagsChanged(const QString &imagePath, const QStringList &tags);

@@ -51,7 +51,16 @@ bool TagStore::open(const QString &folder) {
            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
            "name TEXT UNIQUE NOT NULL,"
            "category TEXT DEFAULT '',"
-           "color TEXT DEFAULT '')");
+           "color TEXT DEFAULT '',"
+           "icon TEXT DEFAULT '')");
+    // 旧库迁移：缺 icon 列则补（固定标图标列）
+    {
+        bool hasIcon = false;
+        QSqlQuery pragma(m_db);
+        pragma.exec("PRAGMA table_info(tags)");
+        while (pragma.next()) if (pragma.value(1).toString() == "icon") { hasIcon = true; break; }
+        if (!hasIcon) q.exec("ALTER TABLE tags ADD COLUMN icon TEXT DEFAULT ''");
+    }
     q.exec("CREATE TABLE IF NOT EXISTS image_tags ("
            "filename TEXT NOT NULL,"
            "tag_id INTEGER NOT NULL,"
@@ -70,6 +79,9 @@ bool TagStore::open(const QString &folder) {
     all.exec("SELECT id, name FROM tags");
     while (all.next())
         m_tagNames.insert(all.value(1).toString(), all.value(0).toInt());
+
+    // 预置固定标（QC）定义：category='qc' + emoji icon
+    ensureQcTags();
     return true;
 }
 
@@ -83,15 +95,27 @@ void TagStore::close() {
     m_tagNames.clear();
 }
 
-int TagStore::addTag(const QString &name, const QString &category) {
+int TagStore::addTag(const QString &name, const QString &category, const QString &icon) {
     if (name.trimmed().isEmpty()) return -1;
     int existing = m_tagNames.value(name, -1);
-    if (existing >= 0) return existing;
+    if (existing >= 0) {
+        // 已存在：若补了 icon（固定标），更新定义
+        if (!icon.isEmpty()) {
+            QSqlQuery u(m_db);
+            u.prepare("UPDATE tags SET icon=?, category=? WHERE id=?");
+            u.addBindValue(icon);
+            u.addBindValue(category);
+            u.addBindValue(existing);
+            u.exec();
+        }
+        return existing;
+    }
 
     QSqlQuery q(m_db);
-    q.prepare("INSERT INTO tags(name, category) VALUES(?, ?)");
+    q.prepare("INSERT INTO tags(name, category, icon) VALUES(?, ?, ?)");
     q.addBindValue(name);
     q.addBindValue(category);
+    q.addBindValue(icon);
     if (!q.exec()) {
         qWarning() << "TagStore: addTag failed" << q.lastError().text();
         return -1;
@@ -99,6 +123,68 @@ int TagStore::addTag(const QString &name, const QString &category) {
     int id = q.lastInsertId().toInt();
     m_tagNames.insert(name, id);
     return id;
+}
+
+// 标签颜色（空 = 未设置）
+QString TagStore::tagColor(const QString &name) const
+{
+    QSqlQuery q(m_db);
+    q.prepare("SELECT color FROM tags WHERE name=?");
+    q.addBindValue(name);
+    if (q.exec() && q.next()) return q.value(0).toString();
+    return QString();
+}
+
+// 设置标签颜色（不存在则先建 tag）
+void TagStore::setTagColor(const QString &name, const QString &color)
+{
+    int id = m_tagNames.value(name, -1);
+    if (id < 0) { addTag(name); id = m_tagNames.value(name, -1); }
+    if (id < 0) return;
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE tags SET color=? WHERE id=?");
+    q.addBindValue(color);
+    q.addBindValue(id);
+    q.exec();
+}
+
+// 固定标 icon（空 = 普通标签）
+QString TagStore::tagIcon(const QString &name) const
+{
+    QSqlQuery q(m_db);
+    q.prepare("SELECT icon FROM tags WHERE name=?");
+    q.addBindValue(name);
+    if (q.exec() && q.next()) return q.value(0).toString();
+    return QString();
+}
+
+// 固定标 tag 名列表（category='qc'）
+QStringList TagStore::qcTagNames() const
+{
+    QStringList r;
+    QSqlQuery q(m_db);
+    q.exec("SELECT name FROM tags WHERE category='qc' ORDER BY name");
+    while (q.next()) r << q.value(0).toString();
+    return r;
+}
+
+// 预置固定标定义（幂等：已存在则补 icon）
+// 分类哲学：固定标(qc) = 非 AI 算法能靠谱检测的（本地 CV）；标准标(ai) = 必须 AI 检测的
+void TagStore::ensureQcTags()
+{
+    static const QHash<QString, QString> kQc = {   // category='qc'：本地可检测
+        {QStringLiteral("模糊"),     QStringLiteral("🌫")},
+        {QStringLiteral("曝光过度"), QStringLiteral("☀")},
+        {QStringLiteral("色偏"),     QStringLiteral("🎨")},
+    };
+    static const QHash<QString, QString> kAi = {   // category='ai'：必须 AI 检测（MCP）
+        {QStringLiteral("红眼"),     QStringLiteral("👁")},
+        {QStringLiteral("闭眼"),     QStringLiteral("😑")},
+    };
+    for (auto it = kQc.constBegin(); it != kQc.constEnd(); ++it)
+        addTag(it.key(), QStringLiteral("qc"), it.value());  // 已存在则补 icon，不存在则插入
+    for (auto it = kAi.constBegin(); it != kAi.constEnd(); ++it)
+        addTag(it.key(), QStringLiteral("ai"), it.value());
 }
 
 void TagStore::removeTag(int tagId) {

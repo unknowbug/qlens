@@ -34,6 +34,8 @@ private:
     // Settings
     void setLanguage(const QString &lang);
     void registerFileAssociations();
+    void checkAssociationsOnStart();   // 启动检测：程序移动后自动静默重注册（防右键菜单无效关联）
+    void doRegisterAssociations(bool notify);   // 实际注册（notify=false 静默——启动检测用）
     // MCP 帮助
     void showMcpHelp();
 
@@ -43,6 +45,10 @@ private:
     void goForward();  // 历史前进
     void pushHistory(const QString &path);  // 记录浏览历史
     void updateNavButtons();               // 更新按钮可用状态
+
+    // QC 批量检测（本地 CV：曝光过度/模糊/色偏 → 固定标）
+    void runQcDetection();
+    bool m_qcRunning = false;
 
     QPushButton *m_backBtn = nullptr;
     QPushButton *m_forwardBtn = nullptr;
@@ -60,6 +66,7 @@ private:
     PathBar       *m_pathBar   = nullptr;
     QLabel        *m_statusLabel = nullptr;
     QComboBox     *m_filterCombo = nullptr;
+    QComboBox     *m_qcCombo = nullptr;      // 固定标(QC)筛选
     QComboBox     *m_highlightCombo = nullptr;
     bool           m_updatingCombo = false;
 };

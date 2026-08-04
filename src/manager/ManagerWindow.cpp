@@ -1,9 +1,13 @@
+#ifndef NOMINMAX
+#define NOMINMAX   // 防 Windows min/max 宏与 QtConcurrent 冲突
+#endif
 #include "ManagerWindow.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
 #include <QMessageBox>
 #include "i18n.h"
+#include "decode_api.h"
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QStatusBar>
@@ -12,16 +16,77 @@
 #include <QUrl>
 #include <QFile>
 #include <QTimer>
+#include <QProcess>
 #include <cstdio>
 #include <QScreen>
 #include <QApplication>
 #include <shlobj.h>
+#include <shellapi.h>
 #include <objbase.h>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QtConcurrent>
+#include <QFutureWatcher>
+#include <QProgressDialog>
+#include <QImage>
+#include <QVector>
 
 // 翻译辅助：msgid=中文，默认中文；en.po 覆盖为英文
 static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(id)); }
+
+// ── 本地 QC 检测（固定标 = 非 AI 能靠谱检测的）──
+// 过曝：高光(>0.9 亮度)占比；色偏：RGB 通道均值偏移；模糊：灰度拉普拉斯方差
+static QStringList detectQc(const QImage &src) {
+    QStringList hits;
+    QImage img = (src.width() > 256 || src.height() > 256)
+        ? src.scaled(256, 256, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+               .convertToFormat(QImage::Format_RGB32)
+        : src.convertToFormat(QImage::Format_RGB32);
+    const int w = img.width(), h = img.height();
+    const qint64 total = (qint64)w * h;
+    if (total < 16) return hits;
+
+    qint64 sumR = 0, sumG = 0, sumB = 0, over = 0;
+    for (int y = 0; y < h; ++y) {
+        const QRgb *line = reinterpret_cast<const QRgb *>(img.constScanLine(y));
+        for (int x = 0; x < w; ++x) {
+            int r = qRed(line[x]), g = qGreen(line[x]), b = qBlue(line[x]);
+            sumR += r; sumG += g; sumB += b;
+            if (qGray(r, g, b) > 229) ++over;   // 亮度 > 0.9
+        }
+    }
+    if ((double)over / total > 0.15) hits << QStringLiteral("曝光过度");
+
+    double mr = sumR / (double)total, mg = sumG / (double)total, mb = sumB / (double)total;
+    double dev = qMax(qAbs(mr - mg), qMax(qAbs(mg - mb), qAbs(mr - mb)));
+    if (dev > 20.0) hits << QStringLiteral("色偏");
+
+    // 拉普拉斯方差（灰度 3x3 卷积）——低方差 = 模糊
+    if (w >= 8 && h >= 8) {
+        QVector<int> lap((w - 2) * (h - 2));
+        int idx = 0;
+        for (int y = 1; y < h - 1; ++y) {
+            const QRgb *p0 = reinterpret_cast<const QRgb *>(img.constScanLine(y - 1));
+            const QRgb *p1 = reinterpret_cast<const QRgb *>(img.constScanLine(y));
+            const QRgb *p2 = reinterpret_cast<const QRgb *>(img.constScanLine(y + 1));
+            for (int x = 1; x < w - 1; ++x) {
+                int center = qGray(p1[x]);
+                int neigh = qGray(p0[x-1]) + qGray(p0[x]) + qGray(p0[x+1])
+                          + qGray(p1[x-1]) + qGray(p1[x+1])
+                          + qGray(p2[x-1]) + qGray(p2[x]) + qGray(p2[x+1]);
+                lap[idx++] = neigh - 8 * center;
+            }
+        }
+        double mean = 0;
+        for (int v : lap) mean += v;
+        mean /= lap.size();
+        double var = 0;
+        for (int v : lap) { double d = v - mean; var += d * d; }
+        var /= lap.size();
+        if (var < 60.0) hits << QStringLiteral("模糊");
+    }
+    return hits;
+}
 // 定位默认图片文件夹（前向声明——定义在下方）
 static QString findDefaultFolder();
 #include <QLabel>
@@ -120,7 +185,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     toolbar->setStyleSheet("background:#1e1e1e;");
     auto *tl = new QHBoxLayout(toolbar);
     tl->setContentsMargins(8, 4, 8, 4);
-    tl->setSpacing(6);
+    tl->setSpacing(4);
 
     // 导航按钮：后退 / 前进 / 上级目录
     auto mkNavBtn = [&](const QString &text, const QString &tip) -> QPushButton* {
@@ -141,7 +206,6 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     tl->addWidget(m_backBtn);
     tl->addWidget(m_forwardBtn);
     tl->addWidget(m_upBtn);
-    tl->addSpacing(4);
 
     m_pathBar = new PathBar(toolbar);
     m_pathBar->setStyleSheet("background:#141414; border:1px solid #333; border-radius:3px;");
@@ -151,14 +215,31 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     });
     tl->addWidget(m_pathBar, 1);
 
-    // 筛选：只显示命中标签的图片
+    // 固定标（QC）筛选：独立于普通标签——工具栏最左侧（与 tag 筛选 AND 叠加）
+    auto *qcLabel = new QLabel(T(L"QC:"), toolbar);
+    qcLabel->setStyleSheet("color:#888;");
+    qcLabel->setToolTip(T(L"固定标筛选（过曝/模糊/色偏等 CV 可检测标签）"));
+    tl->addWidget(qcLabel);
+    m_qcCombo = new QComboBox(toolbar);
+    m_qcCombo->setInsertPolicy(QComboBox::NoInsert);
+    m_qcCombo->setMinimumWidth(110);
+    m_qcCombo->setStyleSheet(
+        "QComboBox{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:3px;}"
+        "QComboBox QAbstractItemView{background:#222; color:#eee; selection-background-color:#335;}");
+    tl->addWidget(m_qcCombo);
+    // 首项"全部"（空 = 不过滤固定标）
+    m_qcCombo->addItem(T(L"全部"), QString());
+    connect(m_qcCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [this](int) { m_grid->setFilterQc(m_qcCombo->currentData().toString()); });
+
+    // 筛选：只显示命中标签的图片（候选排除 QC 固定标——但手动输入仍可组合）
     auto *filterLabel = new QLabel(T(L"筛选:"), toolbar);
     filterLabel->setStyleSheet("color:#888;");
     tl->addWidget(filterLabel);
     m_filterCombo = new QComboBox(toolbar);
     m_filterCombo->setEditable(true);
     m_filterCombo->setInsertPolicy(QComboBox::NoInsert);
-    m_filterCombo->setPlaceholderText(T(L"按标签过滤..."));
+    m_filterCombo->setPlaceholderText(T(L"按标签过滤(逗号=多标签AND)..."));
     m_filterCombo->setMinimumWidth(140);
     m_filterCombo->setStyleSheet(
         "QComboBox{background:#2a2a2a; color:#ccc; border:1px solid #444; padding:3px;}"
@@ -187,10 +268,21 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     connect(clearBtn, &QPushButton::clicked, [this]() {
         m_filterCombo->setCurrentText("");
         m_highlightCombo->setCurrentText("");
+        m_qcCombo->setCurrentIndex(0);   // 固定标回"全部"
         m_grid->setFilterTag("");
         m_grid->setHighlightTag("");
+        m_grid->setFilterQc("");
     });
     tl->addWidget(clearBtn);
+
+    // QC 批量检测：本地 CV（曝光过度/模糊/色偏）→ 写固定标
+    auto *qcBtn = new QPushButton(T(L"QC 检测"), toolbar);
+    qcBtn->setToolTip(T(L"批量检测当前文件夹（曝光过度/模糊/色偏）并打固定标"));
+    qcBtn->setStyleSheet("QPushButton{background:#2a3a2a; color:#8d8; border:1px solid #454;}"
+                         "QPushButton:hover{background:#3a4a3a;}"
+                         "QPushButton:disabled{background:#222; color:#555; border:1px solid #333;}");
+    connect(qcBtn, &QPushButton::clicked, this, &ManagerWindow::runQcDetection);
+    tl->addWidget(qcBtn);
 
     cl->addWidget(toolbar);
     cl->addWidget(m_stack, 1);
@@ -236,6 +328,35 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
         if (!f.isEmpty()) openInViewer(f);
     });
     fm->addSeparator();
+    // 标签导出/导入（协议生态：CSV/JSON 交换，走 qlens_lib CLI）
+    fm->addAction(T(L"导出标签(&E)..."), [this]() {
+        QString folder = m_grid->currentFolder();
+        if (folder.isEmpty()) return;
+        QString out = QFileDialog::getSaveFileName(this, T(L"导出标签"),
+            folder + "/tags.csv", T(L"CSV (*.csv);;JSON (*.json)"));
+        if (out.isEmpty()) return;
+        QString fmt = out.endsWith(".json", Qt::CaseInsensitive) ? "json" : "csv";
+        QString lib = QCoreApplication::applicationDirPath() + "/../src/mcp/qlens_lib.py";
+        QProcess::startDetached("python", {lib, "export", folder, out, fmt});
+        m_statusLabel->setText(T(L"导出标签：") + out);
+    });
+    fm->addAction(T(L"导入标签(&I)..."), [this]() {
+        QString folder = m_grid->currentFolder();
+        if (folder.isEmpty()) return;
+        QString in = QFileDialog::getOpenFileName(this, T(L"导入标签"),
+            folder, T(L"CSV (*.csv);;JSON (*.json)"));
+        if (in.isEmpty()) return;
+        QString fmt = in.endsWith(".json", Qt::CaseInsensitive) ? "json" : "csv";
+        QString lib = QCoreApplication::applicationDirPath() + "/../src/mcp/qlens_lib.py";
+        auto *proc = new QProcess(this);
+        connect(proc, &QProcess::finished, this, [this, proc, in]() {
+            m_statusLabel->setText(T(L"导入标签完成：") + in);
+            m_grid->refreshCurrentFolder();   // 刷新缩略图角标/候选
+            proc->deleteLater();
+        });
+        proc->start("python", {lib, "import", folder, in, fmt});
+    });
+    fm->addSeparator();
     fm->addAction(T(L"退出(&X)"), qApp, &QApplication::quit);
 
     // ── Settings 菜单（语言切换 + 注册默认看图器）──
@@ -274,8 +395,9 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
         // 打开协议文档（优先 exe 相对 docs/，回退源码目录）
         QString base = QCoreApplication::applicationDirPath();
         QStringList candidates = {
-            base + "/docs/QLENS_TAG_PROTOCOL.md",
-            base + "/../docs/QLENS_TAG_PROTOCOL.md",
+            base + "/docs/QLENS_TAG_PROTOCOL.md",     // 发行版：exe 旁 docs/
+            base + "/QLENS_TAG_PROTOCOL.md",          // 发行版：协议文档直接 exe 旁
+            base + "/../docs/QLENS_TAG_PROTOCOL.md",   // 源码树：build-qv/Release/../..
             base + "/../src/mcp/QLENS_TAG_PROTOCOL.md",
         };
         QString doc;
@@ -294,7 +416,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
             QStringLiteral("<h3>QLens 0.2.0</h3>"
                 "<p>轻量图片查看器 + 管理器，围绕一套开放的图片标签协议（qltag.db）构建。</p>"
                 "<p>协议文档：docs/QLENS_TAG_PROTOCOL.md</p>"
-                "<p>© 2026 NDark (unknowbug)</p>"));
+                "<p>© 2026 N.T.Black (unknowbug)</p>"));
     });
 
     // ── 初始加载延迟到窗口显示后（UI 先出，缩略图/数据库后台载入）──
@@ -319,13 +441,28 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_grid, &ThumbnailGrid::imageClicked, [this](const QString &path) {
         m_tagPanel->setCurrentImage(path);
     });
-    // 选中变化 → 状态栏（选中数/当前文件大小）
+    // 选中变化 → 状态栏 + 右侧标签面板（单选=当前图；多选=批量提示）
     connect(m_grid->selectionModel(), &QItemSelectionModel::selectionChanged,
-            [this]() { updateGridStatus(); });
+            [this]() {
+        updateGridStatus();
+        auto sels = m_grid->selectionModel()->selectedIndexes();
+        if (sels.size() == 1) {
+            const QString p = sels.first().data(ThumbModel::PathRole).toString();
+            if (!p.isEmpty()) m_tagPanel->setCurrentImage(p);
+        } else if (sels.size() > 1) {
+            m_tagPanel->showMultiSelection(sels.size());
+        }
+    });
     // 打标后刷新筛选/高亮候选
     connect(m_tagPanel, &TagPanel::tagsChanged,
             [this](const QString &, const QStringList &) {
         refreshToolbar(m_grid->currentFolder());
+    });
+
+    // 批量打标/删标（网格右键）→ 刷新候选 + 缩略图角标
+    connect(m_grid, &ThumbnailGrid::tagsChanged, [this]() {
+        refreshToolbar(m_grid->currentFolder());
+        m_grid->refreshCurrentFolder();
     });
 
     // ── 启动参数：图片路径 → 打开所在文件夹并查看 ──
@@ -341,6 +478,9 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
         // 无参数：默认打开系统"图片"文件夹（兼容重定向到其他盘）
         openFolder(picturesFolder());
     }
+
+    // 程序被剪切/移动后自动重注册关联（静默——防右键菜单出现无效应用）
+    checkAssociationsOnStart();
 }
 
 // 统一文件夹入口：网格加载 + 左侧树同步 + 工具条刷新 + 历史记录
@@ -409,11 +549,26 @@ void ManagerWindow::refreshToolbar(const QString &path) {
     m_pathBar->setPath(path);
     // 用传入 path 直接查 tag（不依赖 m_grid->m_currentFolder 时序）
     QStringList tags = TagStore::queryFolderTags(path);
+    // 普通筛选/高亮候选排除 QC 固定标（独立成 QC 下拉——不互斥，手动输入仍可组合）
+    QStringList qcs = m_store->qcTagNames();
+    QStringList normal;
+    for (const QString &t : tags)
+        if (!qcs.contains(t)) normal << t;
     m_updatingCombo = true;
     m_filterCombo->clear();
     m_highlightCombo->clear();
-    m_filterCombo->addItems(tags);
-    m_highlightCombo->addItems(tags);
+    m_filterCombo->addItems(normal);
+    m_highlightCombo->addItems(normal);
+    // 固定标列表（category='qc'）——保留首项"全部"
+    QString curQc = m_qcCombo->currentData().toString();
+    m_qcCombo->clear();
+    m_qcCombo->addItem(T(L"全部"), QString());
+    if (m_store && m_store->isOpen()) {
+        QStringList qcs = m_store->qcTagNames();
+        for (const QString &q : qcs) m_qcCombo->addItem(q, q);
+        int restore = m_qcCombo->findData(curQc);
+        m_qcCombo->setCurrentIndex(restore >= 0 ? restore : 0);
+    }
     m_updatingCombo = false;
 }
 
@@ -515,6 +670,68 @@ bool ManagerWindow::eventFilter(QObject *obj, QEvent *event) {
     return QMainWindow::eventFilter(obj, event);
 }
 
+// ── QC 批量检测（后台 + 进度条）：曝光过度/模糊/色偏 → 写固定标 ──
+void ManagerWindow::runQcDetection() {
+    if (m_qcRunning) return;
+    QString folder = m_grid->currentFolder();
+    QStringList paths = m_grid->allImagePaths();
+    if (folder.isEmpty() || paths.isEmpty()) {
+        m_statusLabel->setText(T(L"当前文件夹没有图片"));
+        return;
+    }
+    m_qcRunning = true;
+
+    // 进度对话框（防止反复点 QC 按钮；可取消）
+    auto *dlg = new QProgressDialog(T(L"QC 检测中..."), T(L"取消"), 0, paths.size(), this);
+    dlg->setWindowModality(Qt::WindowModal);
+    dlg->setMinimumDuration(0);
+    dlg->setAutoClose(false);
+    dlg->setAutoReset(false);
+    dlg->setWindowTitle(T(L"QC 检测"));
+    dlg->show();
+
+    auto *watcher = new QFutureWatcher<QPair<QString, QStringList>>(this);
+    connect(watcher, &QFutureWatcher<QPair<QString, QStringList>>::progressValueChanged,
+            dlg, &QProgressDialog::setValue);
+    connect(watcher, &QFutureWatcher<QPair<QString, QStringList>>::finished,
+            this, [this, watcher, dlg, paths]() {
+        int nOver = 0, nBlur = 0, nColor = 0;
+        if (!watcher->future().isCanceled()) {
+            const auto results = watcher->future().results();
+            for (const auto &r : results) {
+                for (const QString &t : r.second) {
+                    m_store->addImageTag(QFileInfo(r.first).fileName(), t);
+                    if (t == QStringLiteral("曝光过度")) ++nOver;
+                    else if (t == QStringLiteral("模糊")) ++nBlur;
+                    else if (t == QStringLiteral("色偏")) ++nColor;
+                }
+            }
+        }
+        m_qcRunning = false;
+        dlg->close();
+        dlg->deleteLater();
+        if (watcher->future().isCanceled()) {
+            m_statusLabel->setText(T(L"QC 检测已取消"));
+        } else {
+            m_statusLabel->setText(T(L"QC 检测完成：") +
+                QStringLiteral("过曝 %1 | 模糊 %2 | 色偏 %3")
+                    .arg(nOver).arg(nBlur).arg(nColor));
+            // 刷新缩略图（emoji 角标出现）+ 维持当前 QC 筛选
+            m_grid->refreshCurrentFolder();
+            m_grid->setFilterQc(m_qcCombo->currentData().toString());
+        }
+        watcher->deleteLater();
+    });
+    connect(dlg, &QProgressDialog::canceled, [watcher]() {
+        watcher->future().cancel();
+    });
+    watcher->setFuture(QtConcurrent::mapped(paths, [](const QString &p) {
+        QImage img = QLensCore::decodeImage(p);
+        if (img.isNull()) return QPair<QString, QStringList>(p, QStringList());
+        return QPair<QString, QStringList>(p, detectQc(img));
+    }));
+}
+
 // ── Settings ──
 // 切换界面语言（写 qlens_config.ini；重启生效——i18n 启动时加载）
 void ManagerWindow::setLanguage(const QString &lang)
@@ -532,17 +749,27 @@ void ManagerWindow::showMcpHelp()
     const QString help =
         QStringLiteral(
         "QLens MCP Server 让 AI 客户端（Claude / CherryStudio / Cursor 等）操作你的图片库。\n\n"
-        "可用工具：\n"
-        "  qlens_list_folder   列出文件夹图片\n"
-        "  qlens_search_tag    按标签搜索\n"
-        "  qlens_get_tags      读图片标签\n"
-        "  qlens_set_tags      设图片标签\n"
-        "  qlens_add_tags      追加标签\n"
-        "  qlens_folder_tags   文件夹内所有标签\n"
-        "  qlens_analyze       批量 QC 打标（自动预压缩，省 token）\n\n"
+        "可用工具（14）：\n"
+        "  查询：\n"
+        "    qlens_list_folder   列出文件夹图片+标签\n"
+        "    qlens_search_tag    按单个标签搜索\n"
+        "    qlens_combo_search  多标签组合搜索（AND/OR）\n"
+        "    qlens_get_tags      读图片标签\n"
+        "    qlens_folder_tags   文件夹内所有标签\n"
+        "    qlens_tag_stats     标签统计（每标签图片数）\n"
+        "  打标：\n"
+        "    qlens_set_tags      全量设置标签（替换/清空）\n"
+        "    qlens_add_tags      追加标签\n"
+        "    qlens_export_tags   导出标签（CSV/JSON）\n"
+        "    qlens_import_tags   导入标签（CSV/JSON）\n"
+        "  文件：\n"
+        "    qlens_move_files    移动/归档（标签迁移）\n"
+        "    qlens_rename_files  重命名（标签迁移）\n"
+        "    qlens_delete_files  永久删除（需客户端确认）\n"
+        "  分析：\n"
+        "    qlens_analyze       批量 QC 质检打标（本地 OpenCV，零 token）\n\n"
         "配置（MCP 客户端添加 stdio server）：\n"
-        "  python <QLens>/src/mcp/server.py\n\n"
-        "注意：请保持 Manager 运行——图片分析前自动预压缩，防止超大图直接上传烧爆 token。\n\n"
+        "  python <QLens安装目录>/mcp/server.py\n\n"
         "协议文档：docs/QLENS_TAG_PROTOCOL.md");
     QMessageBox::information(this, T(L"QLens MCP"), help);
 }
@@ -550,30 +777,179 @@ void ManagerWindow::showMcpHelp()
 // 注册系统默认看图器（图片类型 → QLens QuickView 的"打开方式"）
 void ManagerWindow::registerFileAssociations()
 {
-    wchar_t exe[MAX_PATH];
-    GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    // ProgID 命令：exe "%1"
-    std::wstring cmd = std::wstring(L"\"") + exe + L"\" \"%1\"";
-    const wchar_t *exts[] = { L".jpg", L".jpeg", L".png", L".gif", L".bmp", L".webp",
-        L".heic", L".heif", L".avif", L".jxr", L".svg", L".tif", L".tiff" };
+    doRegisterAssociations(true);
+}
+
+// 启动检测：若已注册但 exe 路径已变（程序被剪切/移动），静默重注册覆盖旧关联
+void ManagerWindow::checkAssociationsOnStart()
+{
+    wchar_t self[MAX_PATH];
+    GetModuleFileNameW(nullptr, self, MAX_PATH);
+    wchar_t selfDir[MAX_PATH];
+    wcscpy_s(selfDir, self);
+    wchar_t *sl = wcsrchr(selfDir, L'\\');
+    if (sl) *sl = 0;
+    // 期望命令：当前目录的 qlens_quickview.exe
+    std::wstring expect = L"\"" + std::wstring(selfDir) + L"\\qlens_quickview.exe\" \"%1\"";
     HKEY k;
-    // ProgID shell open command（注册到 HKCU）
-    if (RegCreateKeyExW(HKEY_CURRENT_USER,
-        L"Software\\Classes\\QLensQuickView\\shell\\open\\command", 0, nullptr,
-        0, KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExW(k, L"", 0, REG_SZ, (const BYTE*)cmd.c_str(),
-            (DWORD)(cmd.size() * sizeof(wchar_t)));
+    wchar_t cur[1024] = {};
+    DWORD sz = sizeof(cur);
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Classes\\QLensQuickView\\shell\\open\\command", 0, KEY_READ, &k) != ERROR_SUCCESS)
+        return;  // 未注册——尊重用户选择，不自动注册
+    RegQueryValueExW(k, L"", nullptr, nullptr, (LPBYTE)cur, &sz);
+    RegCloseKey(k);
+    if (_wcsicmp(cur, expect.c_str()) != 0) {
+        // 已注册但指向旧路径 → 静默重注册覆盖
+        doRegisterAssociations(false);
+    }
+}
+
+void ManagerWindow::doRegisterAssociations(bool notify)
+{
+    // 注册 QLens QuickView 为"可用看图器"（HKCU 用户级，无需管理员；微软文档化注册表路径 + Explorer 刷新通知）
+    // 指向同目录 qlens_quickview.exe（正式发行版两 exe 同目录）
+    wchar_t self[MAX_PATH];
+    GetModuleFileNameW(nullptr, self, MAX_PATH);
+    wchar_t selfDir[MAX_PATH];
+    wcscpy_s(selfDir, self);
+    wchar_t *sl = wcsrchr(selfDir, L'\\');
+    if (sl) *sl = 0;
+    std::wstring qvExe = std::wstring(selfDir) + L"\\qlens_quickview.exe";
+    if (GetFileAttributesW(qvExe.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        QMessageBox::warning(this, T(L"设置"),
+            T(L"未找到 qlens_quickview.exe（需与 Manager 同目录部署）"));
+        return;
+    }
+    const wchar_t *progId = L"QLensQuickView";
+    const wchar_t *friendly = L"QLens QuickView";
+    std::wstring cmd = L"\"" + qvExe + L"\" \"%1\"";
+    std::wstring ico = L"\"" + qvExe + L"\",0";
+    // 扩展名 → 独立 ProgID + 格式图标（icons/<ICO>.ico；空图标 = 无专属 → exe 主图标）
+    static const struct { const wchar_t *ext; const wchar_t *prog; const wchar_t *ico; } kExtAssoc[] = {
+        { L".jpg",  L"QLens.JPG",  L"JPG"  },
+        { L".jpeg", L"QLens.JPG",  L"JPG"  },
+        { L".png",  L"QLens.PNG",  L"PNG"  },
+        { L".gif",  L"QLens.GIF",  L"GIF"  },
+        { L".bmp",  L"QLens.BMP",  L"BMP"  },
+        { L".webp", L"QLens.WEBP", L"WEBP" },
+        { L".heic", L"QLens.HEIF", L"HEIF" },
+        { L".heif", L"QLens.HEIF", L"HEIF" },
+        { L".avif", L"QLens.AVIF", L"AVIF" },
+        { L".jxr",  L"QLensQuickView", L""    },
+        { L".wdp",  L"QLensQuickView", L""    },
+        { L".svg",  L"QLens.SVG",  L"SVG"  },
+        { L".tif",  L"QLens.TIFF", L"TIFF" },
+        { L".tiff", L"QLens.TIFF", L"TIFF" },
+    };
+    HKEY k;
+
+    // 1. ProgID：QLensQuickView（描述 / DefaultIcon / open command / FriendlyAppName）
+    std::wstring base = std::wstring(L"Software\\Classes\\") + progId;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, base.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(k, L"", 0, REG_SZ, (const BYTE*)friendly, (DWORD)(wcslen(friendly) * sizeof(wchar_t)));
         RegCloseKey(k);
     }
-    // 各扩展名 OpenWithProgIDs
-    for (const wchar_t *ext : exts) {
-        std::wstring key = std::wstring(L"Software\\Classes\\") + ext + L"\\OpenWithProgIDs";
-        if (RegCreateKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0,
+    std::wstring sub = base + L"\\DefaultIcon";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, sub.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(k, L"", 0, REG_SZ, (const BYTE*)ico.c_str(), (DWORD)(ico.size() * sizeof(wchar_t)));
+        RegCloseKey(k);
+    }
+    sub = base + L"\\shell\\open\\command";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, sub.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(k, L"", 0, REG_SZ, (const BYTE*)cmd.c_str(), (DWORD)(cmd.size() * sizeof(wchar_t)));
+        RegCloseKey(k);
+    }
+
+    // 1.5 每扩展独立 ProgID：QLens.<EXT>（DefaultIcon 指向 icons/<EXT>.ico——文件类型图标）
+    for (const auto &d : kExtAssoc) {
+        if (wcscmp(d.prog, progId) == 0) continue;   // 主 ProgID 已建（无专属图标的扩展用它）
+        std::wstring pBase = L"Software\\Classes\\" + std::wstring(d.prog);
+        std::wstring icoPath;
+        if (d.ico[0]) {
+            std::wstring icof = std::wstring(selfDir) + L"\\icons\\" + d.ico + L".ico";
+            if (GetFileAttributesW(icof.c_str()) != INVALID_FILE_ATTRIBUTES)
+                icoPath = L"\"" + icof + L"\",0";
+        }
+        if (icoPath.empty()) icoPath = ico;   // 无图标文件 → exe 主图标
+        sub = pBase + L"\\DefaultIcon";
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, sub.c_str(), 0, nullptr, 0,
             KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
-            RegSetValueExW(k, L"QLensQuickView", 0, REG_SZ, nullptr, 0);
+            RegSetValueExW(k, L"", 0, REG_SZ, (const BYTE*)icoPath.c_str(), (DWORD)(icoPath.size() * sizeof(wchar_t)));
+            RegCloseKey(k);
+        }
+        sub = pBase + L"\\shell\\open\\command";
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, sub.c_str(), 0, nullptr, 0,
+            KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+            RegSetValueExW(k, L"", 0, REG_SZ, (const BYTE*)cmd.c_str(), (DWORD)(cmd.size() * sizeof(wchar_t)));
             RegCloseKey(k);
         }
     }
-    QMessageBox::information(this, T(L"设置"),
-        tr("QLens QuickView registered. Right-click an image → Open with → QLens QuickView."));
+
+    // 2. Applications\qlens_quickview.exe（让"打开方式"正确显示 QLens QuickView + 支持类型 + 图标）
+    std::wstring appBase = L"Software\\Classes\\Applications\\qlens_quickview.exe";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, appBase.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(k, L"FriendlyAppName", 0, REG_SZ, (const BYTE*)friendly, (DWORD)(wcslen(friendly) * sizeof(wchar_t)));
+        RegCloseKey(k);
+    }
+    sub = appBase + L"\\DefaultIcon";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, sub.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(k, L"", 0, REG_SZ, (const BYTE*)ico.c_str(), (DWORD)(ico.size() * sizeof(wchar_t)));
+        RegCloseKey(k);
+    }
+    sub = appBase + L"\\shell\\open\\command";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, sub.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(k, L"", 0, REG_SZ, (const BYTE*)cmd.c_str(), (DWORD)(cmd.size() * sizeof(wchar_t)));
+        RegCloseKey(k);
+    }
+    // SupportedTypes：每个扩展一个命名值（Explorer"始终使用"依赖它）
+    sub = appBase + L"\\SupportedTypes";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, sub.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        for (const auto &d : kExtAssoc)
+            RegSetValueExW(k, d.ext, 0, REG_SZ, (const BYTE*)L"", 1);
+        RegCloseKey(k);
+    }
+
+    // 3. 各扩展 OpenWithProgids → 对应 ProgID（QLens.JPG/QLens.PNG...——"打开方式"候选）
+    for (const auto &d : kExtAssoc) {
+        std::wstring key = std::wstring(L"Software\\Classes\\") + d.ext + L"\\OpenWithProgids";
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0,
+            KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+            RegSetValueExW(k, d.prog, 0, REG_SZ, (const BYTE*)L"", 1);
+            RegCloseKey(k);
+        }
+    }
+
+    // 4. Capabilities + RegisteredApplications（Windows 10/11 设置 → 默认应用 识别 QLens 的标准机制）
+    //    Capabilities\FileAssociations：扩展名 → 对应 ProgID（QLens.JPG 等——默认应用页按类型设置）
+    std::wstring capBase = appBase + L"\\Capabilities\\FileAssociations";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, capBase.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        for (const auto &d : kExtAssoc)
+            RegSetValueExW(k, d.ext, 0, REG_SZ, (const BYTE*)d.prog, (DWORD)(wcslen(d.prog) * sizeof(wchar_t)));
+        RegCloseKey(k);
+    }
+    //    RegisteredApplications：应用名 → Capabilities 键路径（默认应用页入口）
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", 0, nullptr, 0,
+        KEY_WRITE, nullptr, &k, nullptr) == ERROR_SUCCESS) {
+        std::wstring capPath = L"Software\\Classes\\Applications\\qlens_quickview.exe\\Capabilities";
+        RegSetValueExW(k, friendly, 0, REG_SZ, (const BYTE*)capPath.c_str(), (DWORD)(capPath.size() * sizeof(wchar_t)));
+        RegCloseKey(k);
+    }
+
+    // 5. 通知资源管理器刷新关联（标准接口）
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_FLUSH | SHCNF_IDLIST, nullptr, nullptr);
+
+    if (notify) {
+        QMessageBox::information(this, T(L"设置"),
+            T(L"QLens QuickView 已注册为可用看图器。\n右键图片 → 打开方式 → QLens QuickView 即可。\n"
+              "Windows 10/11：设置 → 应用 → 默认应用 → 搜索 QLens QuickView 可设为默认。"));
+    }
 }

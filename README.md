@@ -2,157 +2,38 @@
 
 <img src="assets/QLens.png" width="64" align="left" style="margin-right:12px" />
 
-> **QLens 是一个看图工具，更重要的是，它提供了一套为 AI 时代思考设计的通用图片标签协议。**
+> **QLens 是一个为 AI 时代设计的轻量图片查看器 + 标签管理器。**
 
 [English](README_EN.md) · 中文
 
-轻量图片查看器 + 管理器，围绕一套开放的图片标签协议（`qltag.db`）构建，
-让任何软件、脚本或 AGENT 都能读写图片标签。
-
----
-
-## 为什么会有 QLens？
-
-### 起点一：找不到一个"像 Picasa 那样"的看图器
-
-用过 Picasa 的人都知道那种体验：**轻、快、干净**，双击打开就能看，界面不打扰，浏览效果赏心悦目。但 Picasa 早已停止维护。今天的替代品呢？
-
-- **ACDSee 之类**：功能全但太重，启动慢、界面堆满工具栏，看个图像在用重型软件
-- **其他看图器**：要么够轻但浏览效果差，要么效果还行但根本谈不上轻
-
-QLens 的起点，就是想找回 Picasa 那种"轻快干净的看图体验"——**QLens 首先是一个称职的看图工具**，这件事本身就是为了填补 Picasa 留下的空缺。
-
-### 起点二：看图工具都缺一样东西
-
-每个人电脑里都有一堆照片——婚礼的、旅行的、随手拍的、工作素材的。市面上看图工具能把图打开、缩放、翻页，做得又快又漂亮，但**没有一样东西能回答**：
-
-> "我去年在海边拍的那 200 张照片里，哪些是闭眼的？"
-
-照片存在硬盘里，记忆在脑子里，中间缺一层——**标签**。QLens 首先是一个称职的看图工具；但它的真正价值，是给"看图"这件事补上了缺失的标签层。
-
-### 转折：AI 时代让打标签第一次有了可能
-
-以前给照片打标签是苦力活：一张一张手动写"婚礼"、"海边"、"闭眼"。AI 出现后，识别图片内容变成了几行代码的事。但 AI 打标带来一个新问题：
-
-**视觉模型按图片收 token，一张 4K 原图可能烧掉几万 tokens。** 如果直接把原图丢给 AGENT 分析，一次批量打标就能烧掉一大笔钱。
-
-### 于是 QLens 的核心矛盾浮现了
-
-- 你想要 **AI 带来的灵活玩法**（让 AGENT 按自己想法整理图库）
-- 但批量打标必须 **预压缩 + 批处理**，否则 token 爆炸
-- 这两个方向是冲突的：AGENT 说了算 vs 程序自己干
-
-### 我们的解法：把"协议"和"执行"分开
-
-```
-QLens Manager ── MCP（绑定 Manager 生命周期，批量分析自动预压缩）
-      │
-      └─ qltag.db（每文件夹一个，公开协议）── 你自建 AGENT/脚本自由读写
-```
-
-- **MCP 层**：AGENT 想玩花样？给你 9 个工具随便调。要批量打标？走 `qlens_analyze`，程序内部先缩图再分析，token 不烧。
-- **协议层**：标签数据存在每个文件夹的 `qltag.db` 里，格式完全公开。你看懂了，可以**完全自己设计**——自己的脚本、自己的 AGENT、别的工具，任何时候都能读写，不需要 QLens 运行。
-
-QLens 管"怎么打标签"（执行），把"打完标签干什么"（玩法）完全交给你。
-
-> **QLens 首先是一个看图工具；它真正交付的，是一套为 AI 时代设计的图片标签协议 + 一个不让 AI 烧你钱的执行引擎。**
-
----
-
-## QuickView（qlens_quickview）
-
-**当前主力看图器**——原生 Win32 + D3D11，无 Qt 依赖，exe 仅 **~160KB**。
-
-### 卖点
-
-| 卖点 | 说明 |
-|------|------|
-| **真 HDR 支持** | 16F 全精度直通管线——JXR/高位深 HEIC/AVIF 的 HDR 亮度正确显示（1.0=80nit scRGB 物理标准），SDR 图有 SDR→HDR 上转换增强 |
-| **超小** | 单个 exe ~160KB，无 Qt/无运行时依赖（WIC 解码 + 系统 DLL） |
-| **秒开** | 原生 Win32 极简架构，启动即看，无加载动画 |
-| **极简但够用** | 缩放/翻页/缩略图导航条/旋转/复制/另存为/删除/右键菜单/全屏——一个看图器该有的都有，不堆砌 |
-| **Picasa 式复制** | `Ctrl+C` 位图 = **当前窗口大小**（所见即所得）——超大图粘贴到 QQ/微信等聊天软件不爆位图大小上限；同时提供文件（CF_HDROP）+ 路径（CF_UNICODETEXT）格式 |
-| **HDR 校准** | 内置 `gen_hdrtest.exe` 生成 0-10000nit 分区块测试图——客户可验证显示器真实 HDR 峰值 |
-| **插件扩展** | 解码插件（HEIC/SVG 等）动态加载，新格式随时加 DLL 支持 |
-
-### 快捷键
-
-```
-滚轮            翻页（Ctrl+滚轮 缩放）
-←/→             上一张/下一张
-F / S           100% 原尺寸 / 窗口适配
-Q / E           左旋转 / 右旋转
-Ctrl+C          复制（位图=窗口大小 + 文件 + 路径）
-Ctrl+Shift+S    另存为
-Del             删除到回收站
-F12             DEBUG 信息（格式/显示器/HDR 状态）
---monitor N     指定启动显示器
-```
-
-## 组件
+QLens 由三部分组成，围绕一套开放的图片标签协议（`qltag.db`）构建，
+让任何软件、脚本或 AGENT 都能读写图片标签：
 
 | 组件 | 说明 |
-|------|------|
-| **qlens_quick** (C++/Qt) | 极简看图器：拖入即看，缩略图条，缩放/翻页 |
-| **qlens_manager** (C++/Qt) | 图库管理器：文件夹树 + 虚拟化缩略图网格 + 标签面板 |
-| **qlens MCP Server** (Python) | 暴露图库操作给任何 MCP 客户端（Claude / CherryStudio / Cursor） |
-| **qltag.db 协议** | 公开的标签存储格式，可自由扩展 |
-
-## 核心设计
-
-- **每文件夹一个 `qltag.db`**（隐藏文件）：标签跟着文件夹走，拷贝/移动即带走
-- **纯文件名存储**：DB 就在它管的文件夹里，天然树状递归
-- **WAL 并发**：Manager + 多个 AGENT 可同时读写
-- **MCP 绑定 Manager**：批量打标前 QLens 内部先缩图，防止 AGENT 上传原图烧爆 token
+|---|---|
+| **QLens QuickView** | 原生 Win32 + D3D11 极速看图器——启动快、支持 **HDR 渲染**、WIC 全格式 + 解码插件 |
+| **QLens Manager** | Qt 文件管理器风格——缩略图浏览、**标签管理**（打标/颜色/组合筛选）、**QC 质检**（自动检测过曝/模糊/色偏） |
+| **QLens MCP Server** | 把图片库开放给 AI 客户端（Claude / Cursor 等）——搜索/打标/统计/批量分析 |
 
 ## 快速开始
 
-### 看图（QuickView）
-```powershell
-.\build\bin\Debug\qlens_quick.exe
+```
+bin/qlens_quickview.exe  双击图片或拖入图片即看（F=100% 原尺寸，S=适配窗口，滚轮翻页）
+bin/qlens_manager.exe    浏览文件夹、打标签、QC 检测（进入文件夹 → 双击图片进查看器）
 ```
 
-### 管理器 + 标签（Manager）
-```powershell
-.\build\bin\Debug\qlens_manager.exe
-```
-
-### MCP（外部 AGENT）
-1. 先启动 `qlens_manager.exe`（MCP 依赖 Manager）
-2. 在 MCP 客户端配置：
-```json
-{
-  "mcpServers": {
-    "qlens": {
-      "command": "python",
-      "args": ["E:/PYTHON/qlens/src/mcp/server.py"],
-      "cwd": "E:/PYTHON/qlens/src/mcp"
-    }
-  }
-}
-```
+**系统要求**：Windows 10 1809+（HDR 功能需要 HDR 显示器；HEIC/AVIF 等格式需要 WIC 扩展或解码插件）。
 
 ## 文档
 
-- [标签协议 (qltag.db)](src/mcp/QLENS_TAG_PROTOCOL.md) — 公开数据格式（[English](src/mcp/QLENS_TAG_PROTOCOL_EN.md)）
-- [MCP 设计说明](src/mcp/README.md) — 为什么绑定 Manager + 工具清单（[English](src/mcp/README_EN.md)）
+- [产品概述](docs/01-overview.md) —— 设计哲学与三件套
+- [QuickView 手册](docs/02-quickview.md) —— 快捷键 / HDR / 插件
+- [Manager 手册](docs/03-manager.md) —— 文件管理 / 标签 / QC / 批量
+- [标签协议规范](docs/QLENS_TAG_PROTOCOL.md) —— `qltag.db` schema 与分类哲学 ★
+- [MCP Server 文档](docs/05-mcp.md) —— 工具列表 / 配置 / 示例
+- [插件开发指南](docs/06-plugin-dev.md) —— 解码插件 API
+- [构建与发布](docs/07-build.md) —— 依赖 / 编译 / 系统要求
 
-## 构建
+## 开源协议
 
-```bash
-cmake -B build
-cmake --build build
-```
-
-依赖：Qt 6 (Core/Gui/Widgets/Sql)、LibRaw、LCMS2（CMake 自动查找）。
-
-## 许可
-
-QLens 采用**双许可**：
-
-- **QuickView 看图器**（`src/quickview/`）：**Apache-2.0** —— 免费开源
-- **Manager 标签管理器**（`src/manager/`、`src/core/`、`src/mcp/`）：**Business Source License 1.1** —— 个人/非商业免费，商业用途需授权
-
-**图片标签协议（`qltag.db` 格式 + `docs/`）完全公开**，不受许可限制——你可以自建工具兼容该协议。
-
-详见 [LICENSE](LICENSE)。
+[LICENSE](LICENSE)

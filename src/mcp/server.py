@@ -55,6 +55,30 @@ def qlens_search_tag(tag: str, folder: str = "") -> list[str]:
 
 
 @mcp.tool()
+def qlens_combo_search(tags: list[str], folder: str = "", match: str = "all") -> list[str]:
+    """多标签组合搜索。tags: 标签名数组；match: 'all'=AND(默认,同时命中全部)/'any'=OR(任一命中)；folder: 可选限定目录。"""
+    return qlens_lib.combo_search(tags, folder or None, match)
+
+
+@mcp.tool()
+def qlens_tag_stats(folder: str) -> list[dict]:
+    """统计文件夹内每个标签的图片数（按数量降序）。folder: 绝对路径目录。"""
+    return qlens_lib.tag_stats(folder)
+
+
+@mcp.tool()
+def qlens_export_tags(folder: str, out_path: str, fmt: str = "csv") -> dict:
+    """导出文件夹内全部图片的标签到文件。fmt: 'csv'(默认)/'json'。"""
+    return qlens_lib.export_tags(folder, out_path, fmt)
+
+
+@mcp.tool()
+def qlens_import_tags(folder: str, in_path: str, fmt: str = "csv") -> dict:
+    """从 CSV/JSON 文件导入标签到文件夹的 qltag.db（已存在的跳过）。"""
+    return qlens_lib.import_tags(folder, in_path, fmt)
+
+
+@mcp.tool()
 def qlens_get_tags(image_path: str) -> list[str]:
     """查询单张图片的标签列表。image_path: 图片绝对路径。"""
     return qlens_lib.get_tags(image_path)

@@ -7,7 +7,7 @@ License text copyright (c) 2017 MariaDB Corporation Ab, All Rights Reserved.
 
 Parameters
 
-Licensor:             NDark (unknowbug)
+Licensor:             N.T.Black (unknowbug)
 Licensed Work:        QLens Manager（src/manager、src/core、src/mcp）
 Additional Use Grant: 个人和非商业用途免费使用、复制、修改和分发；商业用途（包括但不限于企业/组织内部批量部署、商业服务交付、以 QLens Manager 能力对外收费）需获得 Licensor 书面授权。
 Change Date:          2030-01-01
@@ -42,7 +42,7 @@ You may not sublicense the Licensed Work. You must provide a copy of this
 License and the following notice with each copy or derivative work of the
 Licensed Work:
 
-  © 2026 NDark (unknowbug). Licensed under the Business Source License 1.1.
+  © 2026 N.T.Black (unknowbug). Licensed under the Business Source License 1.1.
   You may use this file except in compliance with the License. You may
   obtain a copy of the License at https://github.com/unknowbug/qlens
 

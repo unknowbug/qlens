@@ -73,7 +73,12 @@ public:
     void selectImage(const QString &path);
     void setHighlightTag(const QString &tag);
     // 过滤模式：只显示命中标签的图片（空 = 不过滤）
-    void setFilterTag(const QString &tag);
+    void setFilterTag(const QString &tag);   // 逗号分隔多 tag = AND
+    void setFilterQc(const QString &qc);
+    // 当前文件夹全部图片路径（QC 批量检测用；文件夹项排除）
+    QStringList allImagePaths() const;
+    // 重新加载当前文件夹（QC 检测后刷新缩略图/角标）
+    void refreshCurrentFolder();
 
     // 当前文件夹的全部标签（供工具条候选，主线程汇总）
     QStringList folderTags() const;
@@ -91,6 +96,7 @@ signals:
     void folderDoubleClicked(const QString &path);
     void imageDoubleClicked(const QString &path);
     void imageClicked(const QString &path);
+    void tagsChanged();   // 批量打标/删标后（刷新筛选候选 + 缩略图角标）
 
 protected:
     void wheelEvent(QWheelEvent *e) override;
@@ -111,8 +117,10 @@ private:
     void batchConvert();
     void batchResize();
     void batchRename();
+    // 批量标签编辑（作用于选中集 + 右键项）
+    void batchAddTags(const QString &rightClickPath);
+    void batchRemoveTags(const QString &rightClickPath);
     void renameSelected();   // 单选=单文件重命名；多选=批量重命名（选中项）
-    QStringList allImagePaths() const;
     QStringList selectedImagePaths() const;
     // 慢双击重命名跟踪
     int    m_lastClickRow  = -1;
@@ -129,5 +137,7 @@ private:
     QString      m_pendingSelect;  // 待选中图片（loadFolder 异步完成后处理）
     QString      m_highlightTag;
     QString      m_filterTag;
+    QStringList  m_filterTags;  // 逗号解析后的多 tag（AND）
+    QString      m_filterQc;   // 固定标筛选（与 m_filterTag AND）
     int          m_loadToken = 0;
 };

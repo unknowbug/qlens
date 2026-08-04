@@ -389,14 +389,19 @@ static void SaveAsDialog(HWND hwnd)
     // 保存对话框：PNG / JPEG 过滤
     std::wstring pngLabel = std::wstring(I18n::Get(L"PNG 图片")) + L" (*.png)";
     std::wstring jpgLabel = std::wstring(I18n::Get(L"JPEG 图片")) + L" (*.jpg;*.jpeg)";
-    wchar_t filter[256];
-    swprintf_s(filter, 256, L"%s\0*.png\0%s\0*.jpg;*.jpeg\0\0", pngLabel.c_str(), jpgLabel.c_str());
+    // 过滤器是双 null 结尾的多段串——必须逐段拼接（swprintf 格式串在首个 \0 截断，JPEG 段会丢）
+    std::wstring filter;
+    filter += pngLabel; filter += L'\0';
+    filter += L"*.png"; filter += L'\0';
+    filter += jpgLabel; filter += L'\0';
+    filter += L"*.jpg;*.jpeg"; filter += L'\0';
+    filter += L'\0';  // 双 null 结尾
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = hwnd;
     ofn.lpstrFile = file;
     ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrFilter = filter;
+    ofn.lpstrFilter = filter.c_str();
     ofn.nFilterIndex = 1;
     ofn.lpstrDefExt = L"png";
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;

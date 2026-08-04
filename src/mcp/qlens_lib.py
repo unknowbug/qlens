@@ -9,6 +9,8 @@
   image_tags(filename TEXT, tag_id INT, source TEXT, confidence REAL, PK(filename, tag_id))
 """
 import os
+import csv
+import json
 import sqlite3
 import threading
 
@@ -55,7 +57,8 @@ def ensure_schema(folder):
                  "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                  "name TEXT UNIQUE NOT NULL,"
                  "category TEXT DEFAULT '',"
-                 "color TEXT DEFAULT '')")
+                 "color TEXT DEFAULT '',"
+                 "icon TEXT DEFAULT '')")
     conn.execute("CREATE TABLE IF NOT EXISTS image_tags ("
                  "filename TEXT NOT NULL,"
                  "tag_id INTEGER NOT NULL,"
@@ -160,6 +163,122 @@ def search_by_tag(tag_name, folder=None, recursive=True):
         if not recursive:
             break
     return sorted(hits)
+
+
+def combo_search(tags, folder=None, match="all", recursive=True):
+    """多标签组合搜索。match='all'=AND（同时命中全部），'any'=OR（任一命中）。"""
+    if folder is None:
+        folder = os.getcwd()
+    folder = os.path.abspath(folder)
+    tags = [t.strip() for t in tags if t and t.strip()]
+    if not tags:
+        return []
+    placeholders = ",".join("?" * len(tags))
+    hits = []
+    for root, dirs, files in os.walk(folder):
+        if "qltag.db" not in files:
+            if not recursive:
+                break
+            continue
+        db_path = os.path.join(root, "qltag.db")
+        conn = _conn_for(db_path)
+        if match == "any":
+            rows = conn.execute(
+                "SELECT DISTINCT it.filename FROM image_tags it "
+                "JOIN tags t ON t.id=it.tag_id "
+                f"WHERE t.name IN ({placeholders})", tags).fetchall()
+        else:  # all = AND：每图命中的 tag 数 = 目标数
+            rows = conn.execute(
+                "SELECT it.filename, COUNT(DISTINCT t.id) AS n FROM image_tags it "
+                "JOIN tags t ON t.id=it.tag_id "
+                f"WHERE t.name IN ({placeholders}) "
+                "GROUP BY it.filename HAVING n=?", (tags + [len(tags)])).fetchall()
+        for r in rows:
+            hits.append(os.path.join(root, r["filename"]))
+        if not recursive:
+            break
+    return sorted(hits)
+
+
+def tag_stats(folder):
+    """该文件夹内每个标签的图片数（按数量降序）。"""
+    folder = os.path.abspath(folder)
+    db_path = ensure_schema(folder)
+    conn = _conn_for(db_path)
+    rows = conn.execute(
+        "SELECT t.name, COUNT(it.filename) AS n FROM tags t "
+        "JOIN image_tags it ON t.id=it.tag_id "
+        "GROUP BY t.id ORDER BY n DESC, t.name").fetchall()
+    return [{"tag": r["name"], "count": r["n"]} for r in rows]
+
+
+def export_tags(folder, out_path, fmt="csv"):
+    """导出文件夹内全部图片的标签。fmt: 'csv'（filename,tag1,tag2…）/'json'。"""
+    folder = os.path.abspath(folder)
+    db_path = ensure_schema(folder)
+    conn = _conn_for(db_path)
+    rows = conn.execute(
+        "SELECT it.filename, GROUP_CONCAT(t.name, ',') AS tags "
+        "FROM image_tags it JOIN tags t ON t.id=it.tag_id "
+        "GROUP BY it.filename ORDER BY it.filename").fetchall()
+    if fmt == "json":
+        data = {"folder": folder,
+                "images": {r["filename"]: r["tags"].split(",") if r["tags"] else []
+                           for r in rows}}
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    else:
+        with open(out_path, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["filename", "tags"])
+            for r in rows:
+                w.writerow([r["filename"], r["tags"] or ""])
+    return {"ok": True, "path": out_path, "images": len(rows)}
+
+
+def import_tags(folder, in_path, fmt="csv"):
+    """从 CSV/JSON 导入标签到文件夹的 qltag.db（已存在的跳过）。"""
+    folder = os.path.abspath(folder)
+    db_path = ensure_schema(folder)
+    conn = _conn_for(db_path)
+    added = 0
+
+    def _apply(fname, tags):
+        nonlocal added
+        for t in tags:
+            t = t.strip()
+            if not t:
+                continue
+            tid = _tag_id(conn, t)
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO image_tags(filename, tag_id) VALUES(?,?)",
+                (fname, tid))
+            added += cur.rowcount
+
+    if fmt == "json":
+        with open(in_path, encoding="utf-8") as f:
+            data = json.load(f)
+        for fname, tags in data.get("images", {}).items():
+            _apply(fname, tags)
+    else:
+        with open(in_path, encoding="utf-8-sig", newline="") as f:
+            for row in csv.reader(f):
+                if not row or row[0] == "filename":
+                    continue
+                _apply(row[0], row[1].split(",") if len(row) > 1 and row[1] else [])
+    conn.commit()
+    return {"ok": True, "added": added}
+
+
+# CLI 入口：python qlens_lib.py export|import <folder> <file> <csv|json>
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) >= 5 and sys.argv[1] == "export":
+        print(export_tags(sys.argv[2], sys.argv[3], sys.argv[4]))
+    elif len(sys.argv) >= 5 and sys.argv[1] == "import":
+        print(import_tags(sys.argv[2], sys.argv[3], sys.argv[4]))
+    else:
+        print("用法: qlens_lib.py export|import <folder> <file> <csv|json>")
 
 
 def folder_tags(folder):

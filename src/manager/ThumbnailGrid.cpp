@@ -30,6 +30,20 @@
 #include <QBuffer>
 #include <QMouseEvent>
 #include <QDateTime>
+#include <QHash>
+
+// 固定标（QC）标签 → emoji 映射——CV 可检测的固定标签，缩略图右上角显示
+static const QHash<QString, QString> &qcEmojiMap()
+{
+    static const QHash<QString, QString> m = {
+        {QStringLiteral("红眼"),     QStringLiteral("👁")},
+        {QStringLiteral("闭眼"),     QStringLiteral("😑")},
+        {QStringLiteral("模糊"),     QStringLiteral("🌫")},
+        {QStringLiteral("曝光过度"), QStringLiteral("☀")},
+        {QStringLiteral("色偏"),     QStringLiteral("🎨")},
+    };
+    return m;
+}
 
 // 翻译辅助：msgid=中文，默认中文；.po 覆盖为目标语言
 static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(id)); }
@@ -150,13 +164,17 @@ public:
         QRect imgRect = cell.adjusted(2, 2, -2, -2);
         imgRect.setHeight(*m_thumbSize);
 
-        // 背景
-        if (opt.state & QStyle::State_Selected)
+        // 背景 + 选中框（单选/多选都显示——isSelected 比 opt.state 可靠）
+        const bool selected = m_grid && m_grid->selectionModel()->isSelected(idx);
+        if (selected) {
             p->fillRect(cell, QColor(40, 60, 90));
-        else if (opt.state & QStyle::State_MouseOver)
+            p->setPen(QPen(QColor(90, 160, 230), 2));   // 选中框
+            p->drawRect(imgRect.adjusted(1, 1, -1, -1));
+        } else if (opt.state & QStyle::State_MouseOver) {
             p->fillRect(cell, QColor(35, 35, 35));
-        else
+        } else {
             p->fillRect(cell, QColor(17, 17, 17));
+        }
 
         // 缩略图（保持比例居中）
         if (!pix.isNull()) {
@@ -172,15 +190,7 @@ public:
             p->drawRect(imgRect.adjusted(1, 1, -1, -1));
         }
 
-        // QC 角标
-        if (qcBadge && !pix.isNull()) {
-            int sz = qMax(12, *m_thumbSize / 7);
-            QRect badge(imgRect.right() - sz - 2, imgRect.top() + 2, sz, sz);
-            p->fillRect(badge, QColor(200, 40, 40, 220));
-            p->setPen(Qt::white);
-            p->setFont(QFont(p->font().family(), sz * 2 / 3, QFont::Bold));
-            p->drawText(badge, Qt::AlignCenter, "!");
-        }
+        // QC 固定标已在缩略图内嵌 emoji（applyImageThumb 绘制）——delegate 不再画 "!"
 
         // 文件名
         QRect textRect = cell.adjusted(4, *m_thumbSize + 6, -4, -2);
@@ -481,6 +491,8 @@ void ThumbnailGrid::contextMenuEvent(QContextMenuEvent *event)
     QAction *batchConvAct   = menu.addAction(T(L"批量转换格式..."));
     QAction *batchResizeAct = menu.addAction(T(L"批量调整大小..."));
     QAction *batchRenameAct = menu.addAction(T(L"批量重命名..."));
+    QAction *batchAddTagAct = menu.addAction(T(L"批量添加标签..."));
+    QAction *batchRmTagAct  = menu.addAction(T(L"批量移除标签..."));
     QAction *sel  = menu.exec(event->globalPos());
 
     if (sel == open) {
@@ -506,11 +518,60 @@ void ThumbnailGrid::contextMenuEvent(QContextMenuEvent *event)
         batchResize();
     } else if (sel == batchRenameAct) {
         batchRename();
+    } else if (sel == batchAddTagAct) {
+        batchAddTags(it.path);
+    } else if (sel == batchRmTagAct) {
+        batchRemoveTags(it.path);
     }
 }
 
 // ── 右键批量功能（ACDSEE 风格）──
 
+// 批量添加标签（选中集 + 右键项；逗号分隔）
+void ThumbnailGrid::batchAddTags(const QString &rightClickPath)
+{
+    QStringList paths = selectedImagePaths();
+    if (!paths.contains(rightClickPath)) paths << rightClickPath;
+    if (paths.isEmpty()) return;
+    bool ok = false;
+    QString text = QInputDialog::getText(this, T(L"批量添加标签"),
+        T(L"输入标签（逗号分隔，添加到 %1 张图）：").arg(paths.size()),
+        QLineEdit::Normal, QString(), &ok);
+    if (!ok || text.trimmed().isEmpty()) return;
+    int n = 0;
+    for (const QString &p : paths) {
+        for (const QString &t : text.split(',', Qt::SkipEmptyParts)) {
+            QString s = t.trimmed();
+            if (s.isEmpty()) continue;
+            m_store->addImageTag(QFileInfo(p).fileName(), s);
+            ++n;
+        }
+    }
+    emit tagsChanged();
+}
+
+// 批量移除标签（选中集 + 右键项；逗号分隔）
+void ThumbnailGrid::batchRemoveTags(const QString &rightClickPath)
+{
+    QStringList paths = selectedImagePaths();
+    if (!paths.contains(rightClickPath)) paths << rightClickPath;
+    if (paths.isEmpty()) return;
+    bool ok = false;
+    QString text = QInputDialog::getText(this, T(L"批量移除标签"),
+        T(L"输入要移除的标签（逗号分隔，作用于 %1 张图）：").arg(paths.size()),
+        QLineEdit::Normal, QString(), &ok);
+    if (!ok || text.trimmed().isEmpty()) return;
+    int n = 0;
+    for (const QString &p : paths) {
+        for (const QString &t : text.split(',', Qt::SkipEmptyParts)) {
+            QString s = t.trimmed();
+            if (s.isEmpty()) continue;
+            m_store->removeImageTag(QFileInfo(p).fileName(), s);
+            ++n;
+        }
+    }
+    emit tagsChanged();
+}
 // 当前文件夹全部图片路径（按网格显示顺序）
 QStringList ThumbnailGrid::allImagePaths() const
 {
@@ -782,6 +843,8 @@ void ThumbnailGrid::loadFolder(const QString &path) {
     // 丢弃所有排队中的旧任务（运行中的靠 token 丢弃回调）
     QThreadPool::globalInstance()->clear();
     m_filterTag.clear();  // 切文件夹重置过滤
+    m_filterTags.clear();
+    m_filterQc.clear();
 
     // 目录扫描移到 W2 worker 线程（大目录枚举不阻塞 UI）
     int token = m_loadToken;
@@ -851,14 +914,20 @@ int ThumbnailGrid::findModelRow(const QString &path) const {
 // 应用过滤：重建模型可见项
 void ThumbnailGrid::applyFilter() {
     QList<ThumbItem> visible;
-    if (m_filterTag.isEmpty()) {
+    // 多 tag AND 筛选（m_filterTags 非空则全部命中）；固定标筛选叠加
+    if (m_filterTags.isEmpty() && m_filterQc.isEmpty()) {
         visible = m_allItems;
     } else {
         visible.reserve(m_allItems.size());
         for (const ThumbItem &it : m_allItems) {
             if (it.isDir) continue;  // 过滤时隐藏文件夹
-            if (m_store->tagsForImage(it.name).contains(m_filterTag))
-                visible.push_back(it);
+            QStringList tags = m_store->tagsForImage(it.name);
+            bool ok = true;
+            for (const QString &ft : m_filterTags)
+                if (!tags.contains(ft)) { ok = false; break; }
+            if (!ok) continue;
+            if (!m_filterQc.isEmpty() && !tags.contains(m_filterQc)) continue;
+            visible.push_back(it);
         }
     }
     m_model->setItems(visible);
@@ -879,8 +948,27 @@ void ThumbnailGrid::applyFilter() {
 
 void ThumbnailGrid::setFilterTag(const QString &tag) {
     m_filterTag = tag.trimmed();
+    // 逗号分隔多 tag = AND 组合筛选
+    m_filterTags.clear();
+    for (const QString &t : m_filterTag.split(',', Qt::SkipEmptyParts)) {
+        QString s = t.trimmed();
+        if (!s.isEmpty()) m_filterTags << s;
+    }
     if (m_currentFolder.isEmpty()) return;
     applyFilter();
+}
+
+// 固定标筛选（与 tag 筛选 AND 组合）
+void ThumbnailGrid::setFilterQc(const QString &qc) {
+    m_filterQc = qc.trimmed();
+    if (m_currentFolder.isEmpty()) return;
+    applyFilter();
+}
+
+// 重新加载当前文件夹（QC 检测后刷新缩略图/角标）
+void ThumbnailGrid::refreshCurrentFolder() {
+    if (m_currentFolder.isEmpty()) return;
+    loadFolder(m_currentFolder);
 }
 
 QStringList ThumbnailGrid::folderTags() const {
@@ -918,23 +1006,27 @@ void ThumbnailGrid::applyImageThumb(int row, const QString &path, const QImage &
     int visibleRow = findModelRow(path);
     if (visibleRow < 0) return;  // 该图被过滤隐藏，不显示
 
-    // QC 角标
-    bool qc = false;
-    for (const QString &qcTag : {QStringLiteral("红眼"), QStringLiteral("闭眼"),
-                                 QStringLiteral("模糊"), QStringLiteral("曝光过度"),
-                                 QStringLiteral("色偏")}) {
-        if (m_store->tagsForImage(QFileInfo(path).fileName()).contains(qcTag)) { qc = true; break; }
+    // 固定标（QC）emoji：收集该图命中的固定标，画到缩略图右上角（从右往左）
+    QStringList emojis;
+    {
+        QStringList tags = m_store->tagsForImage(QFileInfo(path).fileName());
+        for (auto it = qcEmojiMap().constBegin(); it != qcEmojiMap().constEnd(); ++it)
+            if (tags.contains(it.key())) emojis << it.value();
     }
-    if (qc) {
-        // 画角标到 pixmap
+    if (!emojis.isEmpty()) {
         QPixmap display = pix;
         QPainter p(&display);
-        int sz = qMax(12, display.width() / 7);
-        QRect badge(display.width() - sz - 2, 2, sz, sz);
-        p.fillRect(badge, QColor(200, 40, 40, 220));
-        p.setPen(Qt::white);
-        p.setFont(QFont(p.font().family(), sz * 2 / 3, QFont::Bold));
-        p.drawText(badge, Qt::AlignCenter, "!");
+        QFont emojiFont(QStringLiteral("Segoe UI Emoji"));
+        int sz = qMax(7, display.width() / 12);   // emoji 角标——缩小一倍（6→12 分母）
+        emojiFont.setPixelSize(sz);
+        p.setFont(emojiFont);
+        int x = display.width() - 2;
+        for (int i = emojis.size() - 1; i >= 0; --i) {
+            QFontMetrics fm(emojiFont);
+            x -= fm.horizontalAdvance(emojis[i]);
+            p.drawText(QPointF(x, sz + 1), emojis[i]);
+            x -= 2;
+        }
         p.end();
         m_model->updatePix(visibleRow, display);
         // 同步全量缓存（筛选/取消筛选后不丢缩略图）

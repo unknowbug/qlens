@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── 依赖查找 ──────────────────────────────
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql LinguistTools)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql LinguistTools Concurrent)
 find_package(libraw REQUIRED)
 find_package(lcms REQUIRED)
 

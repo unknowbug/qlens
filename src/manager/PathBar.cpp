@@ -8,8 +8,8 @@
 #include <QFontMetrics>
 #include <QDebug>
 
-// 分隔符点击宽度（\ 按钮）
-static const int kSepW = 22;
+// 分隔符点击宽度（\ 按钮）——紧凑
+static const int kSepW = 10;
 static const int kHMargin = 4;
 static const int kVMargin = 4;
 
@@ -64,7 +64,7 @@ void PathBar::paintEvent(QPaintEvent *)
 
     m_seps.clear();  // 每次绘制重建分隔符区域（与当前布局一致）
     for (int i = 0; i < m_segments.size(); ++i) {
-        int w = fm.horizontalAdvance(m_segments[i].text) + 16;
+        int w = fm.horizontalAdvance(m_segments[i].text) + 6;
         QRect r(x, y, w, h);
         m_segments[i].rect = r;
 

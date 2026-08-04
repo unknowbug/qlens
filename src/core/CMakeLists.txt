@@ -32,17 +32,3 @@ target_include_directories(qlens_core PUBLIC
 target_include_directories(qlens_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src/quickview
 )
-
-if(WIN32)
-    target_sources(qlens_core PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/platform/win/hdr_win.cpp
-    )
-elseif(APPLE)
-    target_sources(qlens_core PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/platform/mac/hdr_mac.mm
-    )
-else()
-    target_sources(qlens_core PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/platform/linux/hdr_linux.cpp
-    )
-endif()

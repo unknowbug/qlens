@@ -15,5 +15,5 @@ add_executable(qlens_manager WIN32
     qlens.qrc
 )
 
-target_link_libraries(qlens_manager PRIVATE qlens_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Sql shell32 ole32)
+target_link_libraries(qlens_manager PRIVATE qlens_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Sql Qt6::Concurrent shell32 ole32)
 target_include_directories(qlens_manager PRIVATE ${CMAKE_SOURCE_DIR}/src/core)
