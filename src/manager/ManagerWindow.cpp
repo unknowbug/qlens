@@ -19,6 +19,7 @@
 #include <QCloseEvent>
 #include <QMoveEvent>
 #include <QResizeEvent>
+#include <QShowEvent>
 #include <QSplitter>
 #include <QByteArray>
 #include <QDebug>
@@ -508,10 +509,8 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
         connect(dw, &QDockWidget::topLevelChanged, this, [this](bool) { scheduleLayoutSave(); });
         connect(dw, &QDockWidget::visibilityChanged, this, [this](bool) { scheduleLayoutSave(); });
     }
-    // dock 之间分隔条拖动（布局建立后才有 splitter）
-    const auto splitters = findChildren<QSplitter *>();
-    for (QSplitter *sp : splitters)
-        connect(sp, &QSplitter::splitterMoved, this, [this](int, int) { scheduleLayoutSave(); });
+    // dock 分隔条/内部 splitter 在布局激活后才有（构造时 QMainWindow 内部 splitter 未创建）
+    // → showEvent 里统一连接（见 showEvent）
 }
 
 // ── 界面布局持久化：qlens_config.ini [Layout]（geometry/state base64）──
@@ -546,24 +545,34 @@ void ManagerWindow::saveLayout() {
             parts.join(';').toStdWString().c_str(), ini.c_str());
 }
 
-// 启动恢复；返回是否有保存的布局（无 → 调用方维持默认最大化）
+// 启动恢复几何（show 前同步，快）；dock 布局延迟到窗口显示后（不阻塞快速启动）
 bool ManagerWindow::restoreLayout() {
-    qInfo() << "[layout] restore begin";
     std::wstring ini = I18n::ConfigIniPath(false);
     wchar_t geoB64[16384] = {}, stB64[16384] = {}, sp[4096] = {};
     GetPrivateProfileStringW(L"Layout", L"geometry", L"", geoB64, 16384, ini.c_str());
     GetPrivateProfileStringW(L"Layout", L"state", L"", stB64, 16384, ini.c_str());
     GetPrivateProfileStringW(L"Layout", L"splitter_sizes", L"", sp, 4096, ini.c_str());
-    qInfo() << "[layout] geo len=" << (int)wcslen(geoB64) << " state len=" << (int)wcslen(stB64);
     bool ok = geoB64[0] != 0 || stB64[0] != 0;
     if (geoB64[0]) {
         QByteArray geo = QByteArray::fromBase64(QString::fromWCharArray(geoB64).toLatin1());
-        qInfo() << "[layout] restoring geometry bytes=" << geo.size();
         restoreGeometry(geo);
         m_lastLayoutGeo = geo;
     }
-    if (stB64[0]) {
-        QByteArray st = QByteArray::fromBase64(QString::fromWCharArray(stB64).toLatin1());
+    if (stB64[0] || sp[0]) {
+        // dock/内部比例 → show 后恢复（不阻塞窗口显示）
+        QTimer::singleShot(0, this, [this, stS = QString::fromWCharArray(stB64),
+                                     spS = QString::fromWCharArray(sp)] {
+            restoreDockState(stS, spS);
+        });
+    }
+    return ok;
+}
+
+// show 后：恢复 dock 布局 + 内部 splitter 比例 + 连接 dock splitter（此后拖动才触发保存）
+void ManagerWindow::restoreDockState(const QString &stB64, const QString &spS) {
+    std::wstring ini = I18n::ConfigIniPath(false);
+    if (!stB64.isEmpty()) {
+        QByteArray st = QByteArray::fromBase64(stB64.toLatin1());
         qInfo() << "[layout] restoring state bytes=" << st.size();
         if (restoreState(st)) {
             m_lastLayoutState = st;
@@ -572,12 +581,11 @@ bool ManagerWindow::restoreLayout() {
             WritePrivateProfileStringW(L"Layout", L"state", nullptr, ini.c_str());
             if (m_leftDock)  addDockWidget(Qt::LeftDockWidgetArea, m_leftDock);
             if (m_rightDock) addDockWidget(Qt::RightDockWidgetArea, m_rightDock);
-            ok = geoB64[0] != 0;
         }
     }
     // 内部 splitter 比例（TagPanel 输入/显示栏）
-    if (sp[0]) {
-        const QStringList parts = QString::fromWCharArray(sp).split(';', Qt::SkipEmptyParts);
+    if (!spS.isEmpty()) {
+        const QStringList parts = spS.split(';', Qt::SkipEmptyParts);
         for (const QString &p : parts) {
             const int eq = p.indexOf('=');
             if (eq <= 0) continue;
@@ -589,7 +597,23 @@ bool ManagerWindow::restoreLayout() {
             if (vals.size() == target->count()) target->setSizes(vals);
         }
     }
-    return ok;
+    // 布局激活后才有 dock splitter：现在连接，拖动分隔条才触发保存
+    connectSplitters();
+}
+
+// 连接所有 QSplitter（dock 分隔条 + 内部可调栏），拖动触发防抖保存
+void ManagerWindow::connectSplitters() {
+    const auto splitters = findChildren<QSplitter *>();
+    for (QSplitter *sp : splitters) {
+        if (sp->property("qlenSplitterConnected").toBool()) continue;
+        connect(sp, &QSplitter::splitterMoved, this, [this](int, int) { scheduleLayoutSave(); });
+        sp->setProperty("qlenSplitterConnected", true);
+    }
+}
+
+void ManagerWindow::showEvent(QShowEvent *e) {
+    QMainWindow::showEvent(e);
+    connectSplitters();   // 首次显示后连接所有 splitter（构造时 dock splitter 未创建）
 }
 
 void ManagerWindow::closeEvent(QCloseEvent *e) {
