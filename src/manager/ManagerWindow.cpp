@@ -16,6 +16,11 @@
 #include <QUrl>
 #include <QFile>
 #include <QTimer>
+#include <QCloseEvent>
+#include <QMoveEvent>
+#include <QResizeEvent>
+#include <QSplitter>
+#include <QByteArray>
 #include <QProcess>
 #include <cstdio>
 #include <QScreen>
@@ -488,7 +493,68 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
 
     // 程序被剪切/移动后自动重注册关联（静默——防右键菜单出现无效应用）
     checkAssociationsOnStart();
+
+    // ── 界面布局持久化：dock 拖动/可见性/窗口移动缩放 → 防抖自动保存 ──
+    m_layoutTimer = new QTimer(this);
+    m_layoutTimer->setSingleShot(true);
+    m_layoutTimer->setInterval(600);
+    connect(m_layoutTimer, &QTimer::timeout, this, &ManagerWindow::saveLayout);
+
+    const auto docks = findChildren<QDockWidget *>();
+    for (QDockWidget *dw : docks) {
+        connect(dw, &QDockWidget::topLevelChanged, this, [this](bool) { scheduleLayoutSave(); });
+        connect(dw, &QDockWidget::visibilityChanged, this, [this](bool) { scheduleLayoutSave(); });
+    }
+    // dock 之间分隔条拖动（布局建立后才有 splitter）
+    const auto splitters = findChildren<QSplitter *>();
+    for (QSplitter *sp : splitters)
+        connect(sp, &QSplitter::splitterMoved, this, [this](int, int) { scheduleLayoutSave(); });
 }
+
+// ── 界面布局持久化：qlens_config.ini [Layout]（geometry/state base64）──
+
+// 防抖：任意布局变化后 600ms 保存一次（拖动过程不频繁写盘）
+void ManagerWindow::scheduleLayoutSave() {
+    if (m_layoutTimer) m_layoutTimer->start();
+}
+
+// 立即保存（状态与上次一致则跳过写盘）
+void ManagerWindow::saveLayout() {
+    QByteArray geo = saveGeometry();
+    QByteArray st  = saveState();
+    if (geo == m_lastLayoutGeo && st == m_lastLayoutState) return;
+    m_lastLayoutGeo = geo;
+    m_lastLayoutState = st;
+    std::wstring ini = I18n::ConfigIniPath(true);
+    WritePrivateProfileStringW(L"Layout", L"geometry",
+        QString::fromLatin1(geo.toBase64()).toStdWString().c_str(), ini.c_str());
+    WritePrivateProfileStringW(L"Layout", L"state",
+        QString::fromLatin1(st.toBase64()).toStdWString().c_str(), ini.c_str());
+}
+
+// 启动恢复；返回是否有保存的布局（无 → 调用方维持默认最大化）
+bool ManagerWindow::restoreLayout() {
+    std::wstring ini = I18n::ConfigIniPath(false);
+    wchar_t geoB64[16384] = {}, stB64[16384] = {};
+    GetPrivateProfileStringW(L"Layout", L"geometry", L"", geoB64, 16384, ini.c_str());
+    GetPrivateProfileStringW(L"Layout", L"state", L"", stB64, 16384, ini.c_str());
+    bool ok = geoB64[0] != 0 || stB64[0] != 0;
+    if (geoB64[0]) {
+        QByteArray geo = QByteArray::fromBase64(QString::fromWCharArray(geoB64).toLatin1());
+        restoreGeometry(geo);
+        m_lastLayoutGeo = geo;
+    }
+    if (stB64[0]) {
+        QByteArray st = QByteArray::fromBase64(QString::fromWCharArray(stB64).toLatin1());
+        restoreState(st);
+        m_lastLayoutState = st;
+    }
+    return ok;
+}
+
+void ManagerWindow::closeEvent(QCloseEvent *e) { saveLayout(); QMainWindow::closeEvent(e); }
+void ManagerWindow::moveEvent(QMoveEvent *e)   { QMainWindow::moveEvent(e); scheduleLayoutSave(); }
+void ManagerWindow::resizeEvent(QResizeEvent *e) { QMainWindow::resizeEvent(e); scheduleLayoutSave(); }
 
 // 统一文件夹入口：网格加载 + 左侧树同步 + 工具条刷新 + 历史记录
 void ManagerWindow::openFolder(const QString &path) {

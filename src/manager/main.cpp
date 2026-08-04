@@ -98,7 +98,8 @@ int main(int argc, char *argv[]) {
     I18n::LoadForApp(L"qlens_manager");
 
     ManagerWindow w;
-    w.showMaximized();
+    if (!w.restoreLayout())    // 有保存的界面布局 → 恢复；首次启动 → 默认最大化
+        w.showMaximized();
     // 命令行参数：目录 → 启动后打开（语言切换自动重启保留路径）
     if (argc > 1) {
         const QString p = QString::fromLocal8Bit(argv[1]);
