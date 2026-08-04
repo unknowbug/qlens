@@ -871,8 +871,11 @@ void ManagerWindow::runQcDetection() {
             dlg, &QProgressDialog::setValue);
     connect(watcher, &QFutureWatcher<QPair<QString, QStringList>>::finished,
             this, [this, watcher, dlg, paths]() {
+        // 缓存 canceled 值：finished 后多次调用 future().isCanceled() 可能不一致
+        // （实测第一次 false 第二次 true → 误走取消分支 → emoji 不刷新）
+        const bool canceled = watcher->future().isCanceled();
         int nOver = 0, nBlur = 0, nColor = 0;
-        if (!watcher->future().isCanceled()) {
+        if (!canceled) {
             const auto results = watcher->future().results();
             for (const auto &r : results) {
                 for (const QString &t : r.second) {
@@ -886,7 +889,7 @@ void ManagerWindow::runQcDetection() {
         m_qcRunning = false;
         dlg->close();
         dlg->deleteLater();
-        if (watcher->future().isCanceled()) {
+        if (canceled) {
             m_statusLabel->setText(T(L"QC 检测已取消"));
         } else {
             m_statusLabel->setText(T(L"QC 检测完成：") +
