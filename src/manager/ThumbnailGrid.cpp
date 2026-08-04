@@ -909,7 +909,7 @@ void ThumbnailGrid::applyScanResult(const ScanResult &res, int token) {
         }
     }
 
-    int ts = m_thumbSize;
+    int ts = std::min(m_thumbSize, 320);   // 缩略图生成/缓存尺寸封顶 320（10W 图防缓存爆炸；显示时 delegate 放大）
     QThreadPool *pool = QThreadPool::globalInstance();
     int dirCount = (int)m_subDirs.size();
 
