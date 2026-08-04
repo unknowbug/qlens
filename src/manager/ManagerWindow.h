@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QTimer>
 #include <QByteArray>
+class QSplitter;
 #include "ThumbnailGrid.h"
 #include "FolderPanel.h"
 #include "TagPanel.h"
@@ -34,12 +35,12 @@ protected:
 private:
     // 界面布局持久化（dock/几何 → qlens_config.ini [Layout]；动了界面就自动保存）
     void restoreDockState(const QString &stB64, const QString &spS);  // show 后：恢复 dock 布局 + 内部 splitter 比例
+    void applySplitterRatios(QSplitter *sp, const QList<double> &ratios);  // 比例 → 像素 setSizes
     void connectSplitters();       // 连接所有 QSplitter（dock 分隔条/内部栏），拖动触发防抖保存
     void saveLayout();             // 立即保存（状态有变化才写盘）
     void scheduleLayoutSave();     // 防抖：600ms 后保存（拖动/移动过程不频繁写盘）
     QTimer     *m_layoutTimer = nullptr;
     QByteArray  m_lastLayoutState;
-    QByteArray  m_lastLayoutGeo;
     void openInViewer(const QString &path);
     void backToGrid();
     void refreshToolbar(const QString &path);

@@ -522,44 +522,41 @@ void ManagerWindow::scheduleLayoutSave() {
 
 // 立即保存（状态与上次一致则跳过写盘）
 void ManagerWindow::saveLayout() {
-    QByteArray geo = saveGeometry();
-    QByteArray st  = saveState();
-    if (geo == m_lastLayoutGeo && st == m_lastLayoutState) return;
-    m_lastLayoutGeo = geo;
+    QByteArray st = saveState();
+    if (st == m_lastLayoutState) return;
     m_lastLayoutState = st;
     std::wstring ini = I18n::ConfigIniPath(true);
-    WritePrivateProfileStringW(L"Layout", L"geometry",
-        QString::fromLatin1(geo.toBase64()).toStdWString().c_str(), ini.c_str());
     WritePrivateProfileStringW(L"Layout", L"state",
         QString::fromLatin1(st.toBase64()).toStdWString().c_str(), ini.c_str());
-    // 内部可调 splitter 比例（TagPanel 输入/显示栏等）——QMainWindow::saveState 不含这些
+    // 内部可调 splitter 按比例记录（0~1，不存像素——窗口/分辨率变化不失真）
     QStringList parts;
     for (QSplitter *sp : findChildren<QSplitter *>()) {
         if (sp->objectName().isEmpty()) continue;
-        QStringList sz;
-        for (int v : sp->sizes()) sz << QString::number(v);
-        parts << sp->objectName() + "=" + sz.join(',');
+        const QList<int> sz = sp->sizes();
+        int total = 0;
+        for (int v : sz) total += v;
+        if (total <= 0) continue;
+        QStringList ratios;
+        for (int v : sz) ratios << QString::number((double)v / total, 'f', 4);
+        parts << sp->objectName() + "=" + ratios.join(',');
     }
     if (!parts.isEmpty())
-        WritePrivateProfileStringW(L"Layout", L"splitter_sizes",
+        WritePrivateProfileStringW(L"Layout", L"splitter_ratios",
             parts.join(';').toStdWString().c_str(), ini.c_str());
 }
 
-// 启动恢复几何（show 前同步，快）；dock 布局延迟到窗口显示后（不阻塞快速启动）
+// 启动恢复：只读 dock 布局 + splitter 比例（窗口永远最大化，不恢复 geometry）
 bool ManagerWindow::restoreLayout() {
     std::wstring ini = I18n::ConfigIniPath(false);
-    wchar_t geoB64[16384] = {}, stB64[16384] = {}, sp[4096] = {};
-    GetPrivateProfileStringW(L"Layout", L"geometry", L"", geoB64, 16384, ini.c_str());
+    wchar_t stB64[16384] = {}, sp[4096] = {};
     GetPrivateProfileStringW(L"Layout", L"state", L"", stB64, 16384, ini.c_str());
-    GetPrivateProfileStringW(L"Layout", L"splitter_sizes", L"", sp, 4096, ini.c_str());
-    bool ok = geoB64[0] != 0 || stB64[0] != 0;
-    if (geoB64[0]) {
-        QByteArray geo = QByteArray::fromBase64(QString::fromWCharArray(geoB64).toLatin1());
-        restoreGeometry(geo);
-        m_lastLayoutGeo = geo;
-    }
-    if (stB64[0] || sp[0]) {
-        // dock/内部比例 → show 后恢复（不阻塞窗口显示）
+    GetPrivateProfileStringW(L"Layout", L"splitter_ratios", L"", sp, 4096, ini.c_str());
+    // 清理旧版像素键（geometry/splitter_sizes 不再使用）
+    WritePrivateProfileStringW(L"Layout", L"geometry", nullptr, ini.c_str());
+    WritePrivateProfileStringW(L"Layout", L"splitter_sizes", nullptr, ini.c_str());
+    bool ok = stB64[0] != 0 || sp[0] != 0;
+    if (ok) {
+        // dock/内部比例 → 显示后恢复（不阻塞快速启动）
         QTimer::singleShot(0, this, [this, stS = QString::fromWCharArray(stB64),
                                      spS = QString::fromWCharArray(sp)] {
             restoreDockState(stS, spS);
@@ -583,7 +580,7 @@ void ManagerWindow::restoreDockState(const QString &stB64, const QString &spS) {
             if (m_rightDock) addDockWidget(Qt::RightDockWidgetArea, m_rightDock);
         }
     }
-    // 内部 splitter 比例（TagPanel 输入/显示栏）
+    // 内部 splitter 按比例恢复（等窗口布局稳定后应用，避免被首次布局覆盖）
     if (!spS.isEmpty()) {
         const QStringList parts = spS.split(';', Qt::SkipEmptyParts);
         for (const QString &p : parts) {
@@ -591,14 +588,49 @@ void ManagerWindow::restoreDockState(const QString &stB64, const QString &spS) {
             if (eq <= 0) continue;
             QSplitter *target = findChild<QSplitter *>(p.left(eq));
             if (!target) continue;
-            const QStringList szs = p.mid(eq + 1).split(',', Qt::SkipEmptyParts);
-            QList<int> vals;
-            for (const QString &s : szs) vals << s.toInt();
-            if (vals.size() == target->count()) target->setSizes(vals);
+            const QStringList rs = p.mid(eq + 1).split(',', Qt::SkipEmptyParts);
+            QList<double> ratios;
+            for (const QString &s : rs) ratios << s.toDouble();
+            if (ratios.size() == target->count()) applySplitterRatios(target, ratios);
         }
     }
     // 布局激活后才有 dock splitter：现在连接，拖动分隔条才触发保存
     connectSplitters();
+    // 双保险：下次事件循环再应用一次比例（首次布局事件可能覆盖 setSizes）
+    if (!spS.isEmpty()) {
+        QTimer::singleShot(0, this, [this, spS] {
+            const QStringList parts = spS.split(';', Qt::SkipEmptyParts);
+            for (const QString &p : parts) {
+                const int eq = p.indexOf('=');
+                if (eq <= 0) continue;
+                QSplitter *target = findChild<QSplitter *>(p.left(eq));
+                if (!target) continue;
+                const QStringList rs = p.mid(eq + 1).split(',', Qt::SkipEmptyParts);
+                QList<double> ratios;
+                for (const QString &s : rs) ratios << s.toDouble();
+                if (ratios.size() == target->count()) applySplitterRatios(target, ratios);
+            }
+        });
+    }
+}
+
+// 按比例设置 splitter（0~1 比例 → 当前总长换算像素）
+void ManagerWindow::applySplitterRatios(QSplitter *sp, const QList<double> &ratios) {
+    double sum = 0;
+    for (double r : ratios) sum += r;
+    if (sum <= 0) return;
+    const int total = sp->orientation() == Qt::Vertical ? sp->height() : sp->width();
+    if (total <= 0) return;
+    QList<int> px;
+    double acc = 0;
+    for (double r : ratios) {
+        acc += r / sum * total;
+        px << qMax(1, (int)acc);
+    }
+    int used = 0;
+    for (int i = 0; i < px.size() - 1; ++i) used += px[i];
+    if (!px.isEmpty()) px[px.size() - 1] = qMax(1, total - used);
+    sp->setSizes(px);
 }
 
 // 连接所有 QSplitter（dock 分隔条 + 内部可调栏），拖动触发防抖保存

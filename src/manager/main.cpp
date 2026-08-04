@@ -112,13 +112,12 @@ int main(int argc, char *argv[]) {
         if (trusted[0] == L'1') {
             std::wstring iniW = I18n::ConfigIniPath(true);
             WritePrivateProfileStringW(L"Layout", L"trusted", L"0", iniW.c_str());
-            w.restoreLayout();
+            w.restoreLayout();   // 只安排 dock 布局/比例延迟恢复，不恢复窗口几何
             qInfo() << "[stage] layout restored";
-            w.show();   // restoreGeometry/restoreState 不会显示窗口——必须显式 show
         } else {
-            w.showMaximized();   // 首次启动 / 上次异常退出 → 默认最大化
-            qInfo() << "[stage] shown (no trusted layout)";
+            qInfo() << "[stage] no trusted layout";
         }
+        w.showMaximized();   // 窗口永远最大化（用户设定），布局（dock/比例）恢复不影响
     } catch (const std::exception &e) {
         qInfo() << "[stage] LAYOUT EXCEPTION:" << e.what();
         std::wstring ini = I18n::ConfigIniPath(true);
