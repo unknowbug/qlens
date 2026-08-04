@@ -15,8 +15,8 @@ public:
 
     // 切换当前图片，加载其标签
     void setCurrentImage(const QString &imagePath);
-    // 多选状态：显示占位提示并禁用打标输入（批量请用右键）
-    void showMultiSelection(int count);
+    // 多选：右侧显示所有选中图的非重复标签（并集），禁用打标输入
+    void showMultiSelection(const QStringList &paths);
 
 signals:
     void tagsChanged(const QString &imagePath, const QStringList &tags);
@@ -24,6 +24,7 @@ signals:
 private:
     void addTagFromInput();
     void refresh();
+    void scheduleRefresh();   // 防抖异步刷新（不阻塞单击/双击事件流）
     bool eventFilter(QObject *obj, QEvent *ev) override;
 
     TagStore        *m_store = nullptr;
@@ -32,4 +33,5 @@ private:
     QPlainTextEdit  *m_tagInput     = nullptr;
     QCompleter      *m_completer    = nullptr;
     QStringList      m_suggestions;   // 当前补全候选（Tab 补全用）
+    bool             m_refreshPending = false;
 };

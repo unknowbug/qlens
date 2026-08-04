@@ -230,7 +230,10 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     // 首项"全部"（空 = 不过滤固定标）
     m_qcCombo->addItem(T(L"全部"), QString());
     connect(m_qcCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [this](int) { m_grid->setFilterQc(m_qcCombo->currentData().toString()); });
+            [this](int) {
+                if (m_updatingCombo) return;   // 刷新 toolbar 时跳过——否则单击后 reset 清 selection
+                m_grid->setFilterQc(m_qcCombo->currentData().toString());
+            });
 
     // 筛选：只显示命中标签的图片（候选排除 QC 固定标——但手动输入仍可组合）
     auto *filterLabel = new QLabel(T(L"筛选:"), toolbar);
@@ -413,7 +416,7 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     helpMenu->addSeparator();
     helpMenu->addAction(T(L"关于 QLens(&A)"), [this]() {
         QMessageBox::about(this, T(L"关于 QLens"),
-            QStringLiteral("<h3>QLens 0.2.0</h3>"
+            QStringLiteral("<h3>QLens 0.2.1</h3>"
                 "<p>轻量图片查看器 + 管理器，围绕一套开放的图片标签协议（qltag.db）构建。</p>"
                 "<p>协议文档：docs/QLENS_TAG_PROTOCOL.md</p>"
                 "<p>© 2026 N.T.Black (unknowbug)</p>"));
@@ -450,7 +453,10 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
             const QString p = sels.first().data(ThumbModel::PathRole).toString();
             if (!p.isEmpty()) m_tagPanel->setCurrentImage(p);
         } else if (sels.size() > 1) {
-            m_tagPanel->showMultiSelection(sels.size());
+            QStringList paths;
+            for (const auto &s : sels)
+                paths << s.data(ThumbModel::PathRole).toString();
+            m_tagPanel->showMultiSelection(paths);
         }
     });
     // 打标后刷新筛选/高亮候选

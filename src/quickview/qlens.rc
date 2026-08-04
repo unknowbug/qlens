@@ -5,7 +5,7 @@ IDI_QLENS ICON "QLens.ico"
 
 #define VER_MAJOR 0
 #define VER_MINOR 2
-#define VER_BUILD 0
+#define VER_BUILD 1
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION VER_MAJOR,VER_MINOR,VER_BUILD,0
@@ -26,9 +26,9 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "QLens"
             VALUE "FileDescription", "QLens QuickView"
-            VALUE "FileVersion", "0.2.0"
+            VALUE "FileVersion", "0.2.1"
             VALUE "ProductName", "QLens"
-            VALUE "ProductVersion", "0.2.0"
+            VALUE "ProductVersion", "0.2.1"
         END
     END
     BLOCK "VarFileInfo"

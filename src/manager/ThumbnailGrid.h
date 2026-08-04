@@ -104,6 +104,10 @@ protected:
     void contextMenuEvent(QContextMenuEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    QPoint m_pressPos;   // 按下位置（release 判断拖动/框选）
+    bool   m_pressOnItem = false;   // press 落在 item 上（手动接管点击，release 不调 super）
     void dragEnterEvent(QDragEnterEvent *e) override;
     void dragMoveEvent(QDragMoveEvent *e) override;
     void dropEvent(QDropEvent *e) override;

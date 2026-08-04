@@ -2,10 +2,11 @@
 # 用法：powershell -ExecutionPolicy Bypass -File pack.ps1
 # 主运行根：build-qv\Release（两 exe + Qt Release + 插件 + language/icons/docs/mcp 已齐）
 # 产出：dist\QLens-<ver>\（目录）+ dist\QLens-<ver>.zip
+# 2026-08-04: 0.2.1（修复：单击蓝框/双击/框选/多选标签聚合）
 $ErrorActionPreference = "Stop"
 $root   = $PSScriptRoot
 if (-not $root) { $root = (Get-Location).Path }   # 兜底：当前目录
-$ver    = "0.2.0"
+$ver    = "0.2.1"
 $qtBin  = "D:\Qt\6.11.1\msvc2022_64\bin"
 $src    = Join-Path $root "build-qv\Release"
 $dist   = Join-Path $root "dist\QLens-$ver"

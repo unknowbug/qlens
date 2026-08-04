@@ -16,9 +16,11 @@ static QString T(const wchar_t *id) { return QString::fromWCharArray(I18n::Get(i
 #include <QSplitter>
 #include <QContextMenuEvent>
 #include <QFileInfo>
+#include <QTimer>
+#include <QSet>
 
 TagPanel::TagPanel(TagStore *store, QWidget *parent)
-    : QWidget(parent), m_store(store) {
+    : QWidget(parent), m_store(store), m_refreshPending(false) {
     auto *l = new QVBoxLayout(this);
     l->setContentsMargins(0, 0, 0, 0);
 
@@ -128,18 +130,43 @@ void TagPanel::setCurrentImage(const QString &imagePath) {
     m_currentImage = imagePath;
     m_tagInput->setEnabled(true);
     m_tagInput->setPlaceholderText(T(L"输入标签（用 , 分隔）+ 回车..."));
-    refresh();
+    scheduleRefresh();   // 异步刷新：不阻塞单击/双击事件流
 }
 
-// 多选状态：右侧标签面板显示占位，禁用单图打标输入
-void TagPanel::showMultiSelection(int count) {
+// 防抖异步刷新：快速连点合并成一次；事件循环先处理鼠标第二击（双击）再刷新
+void TagPanel::scheduleRefresh() {
+    if (m_refreshPending) return;
+    m_refreshPending = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_refreshPending = false;
+        refresh();
+    });
+}
+
+// 多选状态：右侧显示所有选中图的非重复标签（并集），禁用单图打标输入
+void TagPanel::showMultiSelection(const QStringList &paths) {
     m_currentImage.clear();
     m_assignedTags->clear();
-    auto *item = new QListWidgetItem(T(L"已选中 %1 张——打标请用右键批量").arg(count));
-    item->setForeground(QColor(150, 150, 150));
-    m_assignedTags->addItem(item);
+    QSet<QString> all;
+    for (const QString &p : paths) {
+        if (p.isEmpty()) continue;
+        const QString fn = QFileInfo(p).fileName();
+        const QStringList t = m_store->tagsForImage(fn);
+        for (const QString &x : t) all.insert(x);
+    }
+    // 标签列表（按名排序，稳定显示）
+    QStringList sorted = all.values();
+    sorted.sort();
+    for (const QString &t : sorted) {
+        auto *item = new QListWidgetItem(t);
+        QString col = m_store->tagColor(t);
+        QPixmap sw(14, 14);
+        sw.fill(QColor(col.isEmpty() ? QStringLiteral("#444") : col));
+        item->setIcon(QIcon(sw));
+        m_assignedTags->addItem(item);
+    }
     m_tagInput->setEnabled(false);
-    m_tagInput->setPlaceholderText(T(L"多选：右键批量添加/移除标签"));
+    m_tagInput->setPlaceholderText(T(L"多选 %1 张——右键批量添加/移除标签").arg(paths.size()));
 }
 
 void TagPanel::addTagFromInput() {

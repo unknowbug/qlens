@@ -4,6 +4,8 @@
 #include "ThumbnailGrid.h"
 #include "i18n.h"
 #include "FileIcons.h"
+#include <QTimer>
+
 #include <QDir>
 #include <QImageReader>
 #include "decode_api.h"
@@ -446,18 +448,19 @@ ThumbnailGrid::ThumbnailGrid(TagStore *store, QWidget *parent)
     setResizeMode(QListView::Adjust);
     setMovement(QListView::Static);
     setSelectionMode(QAbstractItemView::ExtendedSelection);  // Ctrl 单选 / Shift 连选 / 拉框多选
-    setUniformItemSizes(true);          // 性能：布局 O(1)
+    // 不设 uniformItemSizes：Qt 6.11.1 下它与自定义 delegate sizeHint 组合疑似导致 item 点击
+    // 交互异常（pressedIndex 持久化失效 → 单击不选中/clicked 不发/release 清空）
     setSpacing(2);
     setGridSize(QSize(thumbCellSize(), thumbCellSize()));
     setItemDelegate(new ThumbDelegate(m_model, &m_thumbSize, this));
     setStyleSheet("QListView{background:#111; border:none; color:#aaa;}");
     setEditTriggers(QAbstractItemView::EditKeyPressed);  // F2 触发内联编辑
 
-    // 拖放：从网格拖出到资源管理器 = 复制文件；拖图片进网格 = 复制到当前文件夹
-    setDragEnabled(true);
+    // 拖放：只接受拖入（复制到当前文件夹）；拖出（dragEnabled）疑似导致 Qt item 交互失效（press 进拖拽预检→pressedIndex 不建立）——禁用拖出
+    setDragEnabled(false);
     setAcceptDrops(true);
     setDropIndicatorShown(false);
-    setDragDropMode(QAbstractItemView::DragDrop);
+    setDragDropMode(QAbstractItemView::DropOnly);
 
     connect(this, &QListView::doubleClicked, [this](const QModelIndex &idx) {
         if (!idx.isValid()) return;
@@ -752,6 +755,24 @@ void ThumbnailGrid::mousePressEvent(QMouseEvent *e)
         }
     }
     QListView::mousePressEvent(e);
+}
+
+void ThumbnailGrid::mouseReleaseEvent(QMouseEvent *e)
+{
+    QListView::mouseReleaseEvent(e);
+}
+
+void ThumbnailGrid::mouseDoubleClickEvent(QMouseEvent *e)
+{
+    QModelIndex idx = indexAt(e->pos());
+    if (idx.isValid() && e->button() == Qt::LeftButton) {
+        // 手动发双击（Qt 的 doubleClicked 状态机在此 Qt 版本下不可靠——pressedIndex 失效）
+        const ThumbItem &it = m_model->itemAt(idx.row());
+        if (it.isDir) emit folderDoubleClicked(it.path);
+        else          emit imageDoubleClicked(it.path);
+        return;
+    }
+    QListView::mouseDoubleClickEvent(e);
 }
 
 // 拖出：选中项 → 文件 URL（拖到资源管理器 = 复制）
