@@ -114,6 +114,7 @@ int main(int argc, char *argv[]) {
             WritePrivateProfileStringW(L"Layout", L"trusted", L"0", iniW.c_str());
             w.restoreLayout();
             qInfo() << "[stage] layout restored";
+            w.show();   // restoreGeometry/restoreState 不会显示窗口——必须显式 show
         } else {
             w.showMaximized();   // 首次启动 / 上次异常退出 → 默认最大化
             qInfo() << "[stage] shown (no trusted layout)";
