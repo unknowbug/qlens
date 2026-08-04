@@ -337,6 +337,8 @@ ManagerWindow::ManagerWindow(QWidget *parent) : QMainWindow(parent) {
     m_sizeSlider->setValue(m_grid->thumbSize());
     m_sizeLabel = new QLabel(QString("%1: %2").arg(T(L"缩略图")).arg(m_grid->thumbSize()), this);
     m_sizeLabel->setStyleSheet("color:#888; padding:0 6px;");
+    m_sizeLabel->setMinimumWidth(130);   // 固定标签宽度：文本长度变化不影响滑块位置
+    m_sizeLabel->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     statusBar()->addWidget(m_sizeLabel);
     statusBar()->addWidget(m_sizeSlider);
     connect(m_sizeSlider, &QSlider::valueChanged, [this](int v) {
