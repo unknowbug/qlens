@@ -289,6 +289,12 @@ public:
         // 剥离损坏 ICC 后解码（ComfyUI PNG 触发 qicc 断言）
         QImage img = loadImageNoIcc(m_path, m_ts);
         if (img.isNull()) return;
+        // 缓存写（PNG 编码 + SQLite put）放 worker——不在 UI 线程编码/写库（大目录卡主因）
+        QByteArray bytes;
+        QBuffer buf(&bytes);
+        buf.open(QIODevice::WriteOnly);
+        img.save(&buf, "PNG");
+        ThumbnailCache::put(m_path, m_ts, bytes);
         // 传 QImage 回主线程（QPixmap 只能 GUI 线程创建）；token 防切目录竞态
         QMetaObject::invokeMethod(m_grid, [g = m_grid, r = m_row, p = m_path, im = img, t = m_token]() {
             if (g) g->applyImageThumb(r, p, im, t);
@@ -425,6 +431,8 @@ public:
         dir.setNameFilters(filters);
         dir.setFilter(QDir::Files | QDir::Readable);
         r.imageFiles = dir.entryList();
+        // QC 标签批量查询放 worker 线程（主线程 JOIN 大目录会卡 UI）
+        r.qcTagMap = TagStore::queryFolderQcMap(m_path);
 
         QMetaObject::invokeMethod(m_grid, [g = m_grid, res = r, t = m_token]() {
             if (g) g->applyScanResult(res, t);
@@ -896,8 +904,8 @@ void ThumbnailGrid::applyScanResult(const ScanResult &res, int token) {
 
     applyFilter();
 
-    // 批量预查 QC 标签（文件名 → QC 标签）：一次 JOIN 替代逐图 tagsForImage（UI 卡主因）
-    m_qcTagMap = TagStore::queryFolderQcMap(m_currentFolder);
+    // QC 标签映射——ScanTask（worker）已批量查好，主线程零 SQLite
+    m_qcTagMap = res.qcTagMap;
 
     // 高亮标签预查（单条 SQL 拿所有命中文件名，替代逐图查询）
     if (!m_highlightTag.isEmpty()) {
@@ -1019,14 +1027,8 @@ void ThumbnailGrid::setHighlightTag(const QString &tag) {
 void ThumbnailGrid::applyImageThumb(int row, const QString &path, const QImage &img, int token) {
     // 过期任务丢弃：用户已切到别的文件夹，此回调不再有效
     if (token != m_loadToken) return;
-    // 主线程：QPixmap 在这里创建（QPixmap 只能 GUI 线程用）
+    // 主线程：QPixmap 在这里创建（QPixmap 只能 GUI 线程用）；缓存写已在 worker 完成
     QPixmap pix = QPixmap::fromImage(img);
-    // 写缓存
-    QByteArray bytes;
-    QBuffer buf(&bytes);
-    buf.open(QIODevice::WriteOnly);
-    pix.save(&buf, "PNG");
-    ThumbnailCache::put(path, 320, bytes);
 
     // 过滤后行号可能变化，按路径定位
     int visibleRow = findModelRow(path);

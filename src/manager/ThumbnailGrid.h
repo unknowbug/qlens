@@ -26,6 +26,8 @@ struct ThumbItem {
 struct ScanResult {
     QStringList subDirs;
     QStringList imageFiles;
+    // QC 标签映射（文件名 → QC 标签）——ScanTask（worker 线程）里批量查询，避免主线程 JOIN
+    QHash<QString, QStringList> qcTagMap;
 };
 
 // ── 网格模型 ──
