@@ -132,6 +132,47 @@ std::wstring ConfigIniPath(bool forWrite)
 // 从配置/系统语言加载对应 .po（language/<code>/<app>.po）
 // 优先级：qlens_config.ini 的 language（Manager Settings 写）→ 系统 UI 语言
 // 代码：zh=中文(默认) en=English；系统语言无匹配 → 中文
+// 从配置/系统语言解析（配置 language → 系统 UI 语言 → 归一化 zh/en）
+// lang 输出解析结果；返回 true = 有明确语言
+static bool DetectLang(wchar_t *lang, int langLen)
+{
+    lang[0] = 0;
+    // 1) 配置优先（Manager Settings 写）
+    {
+        std::wstring iniPath = ConfigIniPath(false);
+        GetPrivateProfileStringW(L"General", L"language", L"", lang, langLen, iniPath.c_str());
+    }
+    // 2) 无配置 → 系统 UI 语言
+    if (!lang[0]) {
+        LANGID lid = GetUserDefaultUILanguage();
+        // 中文（简体/繁体/zh）→ zh；英文 → en；其他 → 默认 English（国际化惯例）
+        switch (PRIMARYLANGID(lid)) {
+            case LANG_CHINESE: wcscpy_s(lang, langLen, L"zh"); break;
+            case LANG_ENGLISH: wcscpy_s(lang, langLen, L"en"); break;
+            default: wcscpy_s(lang, langLen, L"en"); break;
+        }
+    }
+    // 归一化：zh/Chinese → zh；en/English → en
+    if (_wcsicmp(lang, L"Chinese") == 0) wcscpy_s(lang, langLen, L"zh");
+    else if (_wcsicmp(lang, L"English") == 0) wcscpy_s(lang, langLen, L"en");
+    return lang[0] != 0;
+}
+
+// 确保配置文件存在：无 config 时用默认配置启动并现场写一份（默认 language=系统解析结果）
+void EnsureDefaultConfig()
+{
+    std::wstring readPath = ConfigIniPath(false);
+    if (GetFileAttributesW(readPath.c_str()) != INVALID_FILE_ATTRIBUTES)
+        return;   // 已存在——不覆盖用户配置
+    wchar_t lang[64] = {};
+    DetectLang(lang, 64);
+    std::wstring writePath = ConfigIniPath(true);
+    if (lang[0])
+        WritePrivateProfileStringW(L"General", L"language", lang, writePath.c_str());
+    else
+        WritePrivateProfileStringW(L"General", L"language", L"zh", writePath.c_str());
+}
+
 bool LoadForApp(const wchar_t *appName)
 {
     g_map.clear();
@@ -140,25 +181,9 @@ bool LoadForApp(const wchar_t *appName)
     wchar_t *sl = wcsrchr(exeDir, L'\\');
     if (sl) *sl = 0;
 
-    // 1) 配置优先（Manager Settings 写）
+    // 语言解析（配置 → 系统 → 归一化）
     wchar_t lang[64] = {};
-    {
-        std::wstring iniPath = ConfigIniPath(false);
-        GetPrivateProfileStringW(L"General", L"language", L"", lang, 64, iniPath.c_str());
-    }
-    // 2) 无配置 → 系统 UI 语言
-    if (!lang[0]) {
-        LANGID lid = GetUserDefaultUILanguage();
-        // 中文（简体/繁体/zh）→ zh；英文 → en；其他 → 默认 English（国际化惯例）
-        switch (PRIMARYLANGID(lid)) {
-            case LANG_CHINESE: wcscpy_s(lang, L"zh"); break;
-            case LANG_ENGLISH: wcscpy_s(lang, L"en"); break;
-            default: wcscpy_s(lang, L"en"); break;
-        }
-    }
-    // 归一化：zh/Chinese → zh；en/English → en
-    if (_wcsicmp(lang, L"Chinese") == 0) wcscpy_s(lang, L"zh");
-    else if (_wcsicmp(lang, L"English") == 0) wcscpy_s(lang, L"en");
+    DetectLang(lang, 64);
 
     // zh → 默认中文（无需 .po）
     if (_wcsicmp(lang, L"zh") == 0) return true;

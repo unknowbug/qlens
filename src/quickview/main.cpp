@@ -73,6 +73,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR pCmdLine, int)
     if (monitorIdx >= 0) SetStartMonitorIndex(monitorIdx);
     // 加载语言（qlens_config.ini 的 language → language/<Lang>.po；默认中文）
     I18n::LoadFromConfig();
+    // 首次启动：无 config 时现场写一份默认配置（默认 language=系统解析结果）
+    I18n::EnsureDefaultConfig();
 
     if (imgPath[0]) LoadFileByPath(g_mainHwnd, imgPath);
 

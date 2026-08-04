@@ -26,8 +26,9 @@ Copy-Item "$src\*" $dist -Recurse -Force
 # 2. 保险：Qt 运行时（若运行根缺 Qt DLL 则补全；幂等）
 & "$qtBin\windeployqt.exe" --no-translations --no-system-d3d-compiler --release "$dist\qlens_manager.exe" 2>$null
 
-# 3. 排除链接副产品（.lib/.exp——非运行需要）
+# 3. 排除链接副产品（.lib/.exp——非运行需要）+ 运行期生成物（config 不打包：首次启动现场写）
 Get-ChildItem $dist -Recurse -Include "*.lib","*.exp" -File | Remove-Item -Force
+Remove-Item "$dist\qlens_config.ini" -Force -ErrorAction SilentlyContinue
 
 # 4. 压缩
 Compress-Archive -Path "$dist\*" -DestinationPath $zipOut -Force

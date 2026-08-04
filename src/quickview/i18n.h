@@ -11,6 +11,8 @@ bool Load(const wchar_t *poPath);
 bool LoadFromConfig();
 // 指定程序名加载（Manager 用：qlens_manager.po）
 bool LoadForApp(const wchar_t *appName);
+// 确保配置文件存在：无 config 时用默认配置启动并现场写一份（默认 language=系统解析结果）
+void EnsureDefaultConfig();
 // 查表：返回当前语言翻译；无匹配时返回中文（msgid 本身）
 const wchar_t *Get(const wchar_t *zh);
 // 卸载/清空（释放）

@@ -99,6 +99,8 @@ int main(int argc, char *argv[]) {
     qInfo() << "[stage] plugins loaded";
     // 加载语言（qlens_config.ini language → language/<lang>/qlens_manager.po；默认中文）
     I18n::LoadForApp(L"qlens_manager");
+    // 首次启动：无 config 时现场写一份默认配置（默认 language=系统解析结果）
+    I18n::EnsureDefaultConfig();
     qInfo() << "[stage] i18n loaded";
 
     ManagerWindow w;
