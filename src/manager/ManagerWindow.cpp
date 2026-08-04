@@ -786,9 +786,12 @@ void ManagerWindow::openInViewer(const QString &path) {
     m_viewer->openFile(path);
     m_stack->setCurrentIndex(1);  // 切到查看页
     // 滑块切到"图片缩放"模式（5%=缩小下限，400% 上限；初始=当前实际缩放——适配结果）
-    m_sizeSlider->setRange(5, 400);
+    // blockSignals：setRange 会把旧值 clamp 到新范围并误发 valueChanged（改网格缩略图）
     const int initZoom = (int)qRound(m_viewer->zoomPercent());
+    m_sizeSlider->blockSignals(true);
+    m_sizeSlider->setRange(5, 400);
     m_sizeSlider->setValue(initZoom);
+    m_sizeSlider->blockSignals(false);
     m_sizeLabel->setText(QString("%1: %2%").arg(T(L"缩放")).arg(initZoom));
 }
 
@@ -796,9 +799,11 @@ void ManagerWindow::backToGrid() {
     m_stack->setCurrentIndex(0);
     setWindowTitle(QString::fromWCharArray(I18n::Get(L"QLens 管理器")));
     updateGridStatus();
-    // 滑块切回"缩略图大小"模式
+    // 滑块切回"缩略图大小"模式（blockSignals：setRange clamp 旧值会误触发 setThumbSize）
+    m_sizeSlider->blockSignals(true);
     m_sizeSlider->setRange(96, 640);
     m_sizeSlider->setValue(m_grid->thumbSize());
+    m_sizeSlider->blockSignals(false);
     m_sizeLabel->setText(QString("%1: %2").arg(T(L"缩略图")).arg(m_grid->thumbSize()));
 }
 
