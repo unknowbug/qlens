@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QMutex>
 #include <QMutexLocker>
+#include <exception>
 #include <QTextStream>
 #include <QStandardPaths>
 #include <QDir>
@@ -91,15 +92,20 @@ int main(int argc, char *argv[]) {
     g_logFile.open(QIODevice::Append | QIODevice::Text);
     qInstallMessageHandler(logHandler);
     qInfo() << "=== Manager started ===";
+    qInfo() << "[stage] app created";
 
     // 加载解码插件（exe 旁 plugins/，SVG 等格式）
     QLensPlugins_LoadFromExeDir();
+    qInfo() << "[stage] plugins loaded";
     // 加载语言（qlens_config.ini language → language/<lang>/qlens_manager.po；默认中文）
     I18n::LoadForApp(L"qlens_manager");
+    qInfo() << "[stage] i18n loaded";
 
     ManagerWindow w;
+    qInfo() << "[stage] window constructed";
     // 布局自愈：上次正常关闭（trusted=1）才恢复布局；恢复前先降级（防恢复本身崩溃死循环）
-    {
+    // 任何异常/崩溃 → 清除坏布局配置 → 默认最大化启动（保证一定能进界面）
+    try {
         std::wstring ini = I18n::ConfigIniPath(false);
         wchar_t trusted[8] = {};
         GetPrivateProfileStringW(L"Layout", L"trusted", L"", trusted, 8, ini.c_str());
@@ -107,9 +113,21 @@ int main(int argc, char *argv[]) {
             std::wstring iniW = I18n::ConfigIniPath(true);
             WritePrivateProfileStringW(L"Layout", L"trusted", L"0", iniW.c_str());
             w.restoreLayout();
+            qInfo() << "[stage] layout restored";
         } else {
             w.showMaximized();   // 首次启动 / 上次异常退出 → 默认最大化
+            qInfo() << "[stage] shown (no trusted layout)";
         }
+    } catch (const std::exception &e) {
+        qInfo() << "[stage] LAYOUT EXCEPTION:" << e.what();
+        std::wstring ini = I18n::ConfigIniPath(true);
+        WritePrivateProfileStringW(L"Layout", L"state", nullptr, ini.c_str());
+        w.showMaximized();
+    } catch (...) {
+        qInfo() << "[stage] LAYOUT UNKNOWN EXCEPTION";
+        std::wstring ini = I18n::ConfigIniPath(true);
+        WritePrivateProfileStringW(L"Layout", L"state", nullptr, ini.c_str());
+        w.showMaximized();
     }
     // 命令行参数：目录 → 启动后打开（语言切换自动重启保留路径）
     if (argc > 1) {
@@ -118,6 +136,7 @@ int main(int argc, char *argv[]) {
             w.openFolder(QDir::cleanPath(p));
     }
     int rc = app.exec();
+    qInfo() << "[stage] exec returned rc=" << rc;
     qInstallMessageHandler(nullptr);
     return rc;
 }

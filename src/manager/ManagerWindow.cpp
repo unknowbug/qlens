@@ -21,6 +21,7 @@
 #include <QResizeEvent>
 #include <QSplitter>
 #include <QByteArray>
+#include <QDebug>
 #include <QProcess>
 #include <cstdio>
 #include <QScreen>
@@ -547,19 +548,23 @@ void ManagerWindow::saveLayout() {
 
 // 启动恢复；返回是否有保存的布局（无 → 调用方维持默认最大化）
 bool ManagerWindow::restoreLayout() {
+    qInfo() << "[layout] restore begin";
     std::wstring ini = I18n::ConfigIniPath(false);
     wchar_t geoB64[16384] = {}, stB64[16384] = {}, sp[4096] = {};
     GetPrivateProfileStringW(L"Layout", L"geometry", L"", geoB64, 16384, ini.c_str());
     GetPrivateProfileStringW(L"Layout", L"state", L"", stB64, 16384, ini.c_str());
     GetPrivateProfileStringW(L"Layout", L"splitter_sizes", L"", sp, 4096, ini.c_str());
+    qInfo() << "[layout] geo len=" << (int)wcslen(geoB64) << " state len=" << (int)wcslen(stB64);
     bool ok = geoB64[0] != 0 || stB64[0] != 0;
     if (geoB64[0]) {
         QByteArray geo = QByteArray::fromBase64(QString::fromWCharArray(geoB64).toLatin1());
+        qInfo() << "[layout] restoring geometry bytes=" << geo.size();
         restoreGeometry(geo);
         m_lastLayoutGeo = geo;
     }
     if (stB64[0]) {
         QByteArray st = QByteArray::fromBase64(QString::fromWCharArray(stB64).toLatin1());
+        qInfo() << "[layout] restoring state bytes=" << st.size();
         if (restoreState(st)) {
             m_lastLayoutState = st;
         } else {

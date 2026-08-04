@@ -5,28 +5,32 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QCryptographicHash>
-#include <QMutex>
-#include <QMutexLocker>
+#include <QThread>
 
 static const char *kDbName = "qlens_thumbnails.db";
 
+// 每线程独立 SQLite 连接：Qt SQL 连接绑定创建线程，跨线程用同一连接
+// 会触发 "database does not belong to the calling thread" 且是未定义行为
+// （缩略图任务在 QThreadPool 后台线程调用 get/put，必须线程局部）
 static QSqlDatabase db()
 {
-    static QSqlDatabase d = QSqlDatabase::database("thumb");
+    static thread_local QSqlDatabase d;
+    if (!d.isValid()) {
+        const QString connName =
+            QString("thumb_%1").arg((quintptr)QThread::currentThreadId(), 0, 16);
+        d = QSqlDatabase::addDatabase("QSQLITE", connName);
+        QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        QDir().mkpath(path);
+        d.setDatabaseName(path + "/" + kDbName);
+        d.open();
+    }
     return d;
 }
 
-// 全局静态连接非线程安全 → 用互斥锁保护（B3；查询短，锁开销可忽略）
-static QMutex g_cacheMutex;
-
 bool ThumbnailCache::init()
 {
-    QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(path);
-
-    auto d = QSqlDatabase::addDatabase("QSQLITE", "thumb");
-    d.setDatabaseName(path + "/" + kDbName);
-    if (!d.open()) return false;
+    auto d = db();
+    if (!d.isValid()) return false;
 
     QSqlQuery q(d);
     q.exec("CREATE TABLE IF NOT EXISTS thumbnails ("
@@ -39,7 +43,6 @@ bool ThumbnailCache::init()
 
 QByteArray ThumbnailCache::get(const QString &filePath)
 {
-    QMutexLocker lock(&g_cacheMutex);
     auto d = db();
     if (!d.isOpen()) return {};
 
@@ -58,7 +61,6 @@ QByteArray ThumbnailCache::get(const QString &filePath)
 
 void ThumbnailCache::put(const QString &filePath, const QByteArray &jpegData)
 {
-    QMutexLocker lock(&g_cacheMutex);
     auto d = db();
     if (!d.isOpen()) return;
 
