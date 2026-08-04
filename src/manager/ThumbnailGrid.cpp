@@ -276,7 +276,7 @@ public:
 
     void run() override {
         // 先查缓存（worker 线程，ThumbnailCache 已加锁线程安全）——命中则跳过解码
-        QByteArray cached = ThumbnailCache::get(m_path);
+        QByteArray cached = ThumbnailCache::get(m_path, m_ts);
         if (!cached.isEmpty()) {
             QImage cimg;
             if (cimg.loadFromData(cached)) {
@@ -310,7 +310,7 @@ public:
 
     void run() override {
         // 文件夹拼图缓存（key=文件夹路径 + 文件夹 mtime）——命中则跳过扫描/生成
-        QByteArray cached = ThumbnailCache::get(m_folder);
+        QByteArray cached = ThumbnailCache::get(m_folder, m_ts);
         if (!cached.isEmpty()) {
             QImage cimg;
             if (cimg.loadFromData(cached)) {
@@ -385,7 +385,7 @@ public:
             QBuffer buf(&fbytes);
             buf.open(QIODevice::WriteOnly);
             collage.save(&buf, "JPEG", 85);
-            if (!fbytes.isEmpty()) ThumbnailCache::put(m_folder, fbytes);
+            if (!fbytes.isEmpty()) ThumbnailCache::put(m_folder, m_ts, fbytes);
         }
 
         // 回线程池执行：QImage 线程安全，投递主线程收结果（QPixmap 只在主线程创建）
@@ -909,7 +909,9 @@ void ThumbnailGrid::applyScanResult(const ScanResult &res, int token) {
         }
     }
 
-    int ts = std::min(m_thumbSize, 320);   // 缩略图生成/缓存尺寸封顶 320（10W 图防缓存爆炸；显示时 delegate 放大）
+    // 缩略图生成/缓存尺寸固定 256：不随滑块变（10W 图缓存体积可控），显示时 delegate 缩放
+    // 缓存键含 size——尺寸策略再变时旧缓存自动失效
+    int ts = 256;
     QThreadPool *pool = QThreadPool::globalInstance();
     int dirCount = (int)m_subDirs.size();
 
@@ -1021,7 +1023,7 @@ void ThumbnailGrid::applyImageThumb(int row, const QString &path, const QImage &
     QBuffer buf(&bytes);
     buf.open(QIODevice::WriteOnly);
     pix.save(&buf, "PNG");
-    ThumbnailCache::put(path, bytes);
+    ThumbnailCache::put(path, 256, bytes);
 
     // 过滤后行号可能变化，按路径定位
     int visibleRow = findModelRow(path);

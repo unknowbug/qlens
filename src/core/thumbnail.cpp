@@ -6,8 +6,6 @@
 #include <QSqlQuery>
 #include <QCryptographicHash>
 #include <QThread>
-#include <QDateTime>
-#include <atomic>
 
 static const char *kDbName = "qlens_thumbnails.db";
 
@@ -40,40 +38,22 @@ bool ThumbnailCache::init()
            "path TEXT,"
            "mtime INTEGER,"
            "data BLOB,"
-           "last_access INTEGER)");
-    // 老库补 last_access 列（LRU 容量管理用）
+           "size INTEGER)");
+    // 老库补 size 列（缓存键含尺寸——缩略图尺寸策略变化后旧缓存自动失效）
     QSqlQuery pragma(d);
-    bool hasLast = false;
+    bool hasSize = false;
     if (pragma.exec("PRAGMA table_info(thumbnails)")) {
         while (pragma.next())
-            if (pragma.value(1).toString() == QLatin1String("last_access")) { hasLast = true; break; }
+            if (pragma.value(1).toString() == QLatin1String("size")) { hasSize = true; break; }
     }
-    if (!hasLast) {
+    if (!hasSize) {
         QSqlQuery alt(d);
-        alt.exec("ALTER TABLE thumbnails ADD COLUMN last_access INTEGER");
+        alt.exec("ALTER TABLE thumbnails ADD COLUMN size INTEGER");
     }
     return true;
 }
 
-// 容量管理（LRU）：总缓存 > 500MB 删最旧（每 50 次写入检查一次，开销可控）
-static void trimCache(QSqlDatabase &d)
-{
-    static std::atomic<int> counter{0};
-    if (++counter % 50 != 0) return;
-    QSqlQuery q(d);
-    if (!q.exec("SELECT SUM(LENGTH(data)) FROM thumbnails") || !q.next()) return;
-    const qint64 total = q.value(0).toLongLong();
-    const qint64 kMaxBytes = 500LL * 1024 * 1024;   // 500MB 上限
-    if (total <= kMaxBytes) return;
-    const qint64 excess = total - kMaxBytes;
-    QSqlQuery del(d);
-    del.prepare("DELETE FROM thumbnails WHERE path_hash IN "
-                "(SELECT path_hash FROM thumbnails ORDER BY last_access LIMIT ?)");
-    del.addBindValue(excess / 30000 + 50);   // 粗略按 30KB/条 估算删除条数（一次不够下次补）
-    del.exec();
-}
-
-QByteArray ThumbnailCache::get(const QString &filePath)
+QByteArray ThumbnailCache::get(const QString &filePath, int size)
 {
     auto d = db();
     if (!d.isOpen()) return {};
@@ -83,22 +63,16 @@ QByteArray ThumbnailCache::get(const QString &filePath)
         filePath.toUtf8(), QCryptographicHash::Sha256).toHex().left(32));
 
     QSqlQuery q(d);
-    q.prepare("SELECT data FROM thumbnails WHERE path_hash=? AND mtime=?");
+    q.prepare("SELECT data FROM thumbnails WHERE path_hash=? AND mtime=? AND size=?");
     q.addBindValue(hash);
     q.addBindValue(fi.lastModified().toSecsSinceEpoch());
-    if (q.exec() && q.next()) {
-        // 命中：刷新 LRU 时间戳
-        QSqlQuery up(d);
-        up.prepare("UPDATE thumbnails SET last_access=? WHERE path_hash=?");
-        up.addBindValue(QDateTime::currentSecsSinceEpoch());
-        up.addBindValue(hash);
-        up.exec();
+    q.addBindValue(size);
+    if (q.exec() && q.next())
         return q.value(0).toByteArray();
-    }
     return {};
 }
 
-void ThumbnailCache::put(const QString &filePath, const QByteArray &jpegData)
+void ThumbnailCache::put(const QString &filePath, int size, const QByteArray &jpegData)
 {
     auto d = db();
     if (!d.isOpen()) return;
@@ -108,13 +82,12 @@ void ThumbnailCache::put(const QString &filePath, const QByteArray &jpegData)
         filePath.toUtf8(), QCryptographicHash::Sha256).toHex().left(32));
 
     QSqlQuery q(d);
-    q.prepare("INSERT OR REPLACE INTO thumbnails (path_hash, path, mtime, data, last_access) "
+    q.prepare("INSERT OR REPLACE INTO thumbnails (path_hash, path, mtime, data, size) "
               "VALUES (?,?,?,?,?)");
     q.addBindValue(hash);
     q.addBindValue(filePath);
     q.addBindValue(fi.lastModified().toSecsSinceEpoch());
     q.addBindValue(jpegData);
-    q.addBindValue(QDateTime::currentSecsSinceEpoch());
+    q.addBindValue(size);
     q.exec();
-    trimCache(d);
 }
